@@ -119,7 +119,7 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 		return
 	}
 
-	rts, err := getRoute(ifi.Name)
+	rts, err := getHostRoutesIpv4(ifi.Name)
 	if err != nil {
 		ll.Errorf("failed to get routes for Interface %v: %v", ifi.Name, err)
 		return

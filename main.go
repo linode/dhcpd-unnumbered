@@ -73,7 +73,7 @@ func getLogLevels() []string {
 	return levels
 }
 
-func getRoute(ifName string) ([]*net.IPNet, error) {
+func getHostRoutesIpv4(ifName string) ([]*net.IPNet, error) {
 	nlh, err := netlink.NewHandle()
 	defer nlh.Delete()
 	if err != nil {
