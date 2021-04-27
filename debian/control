@@ -1,0 +1,20 @@
+Source: dhcpd-unnumbered
+Section: extra
+Priority: extra
+Maintainer: tpaler <tpaler@linode.com>
+Build-Depends: debhelper (>= 7.0.0~)
+Standards-Version: 3.9.2
+Vcs-Browser: https://github.com/linode/dhcpd-unnumbered
+Vcs-Git: https://github.com/linode/dhcpd-unnumbered
+
+Package: dhcpd-unnumbered
+Architecture: all
+Depends: 
+Provides: ${diverted-files}
+Conflicts: ${diverted-files}
+Description: dhcpd helper for unnumbered tap
+  this tool will listen for dhcp requests on interface
+  matching a regex. if matched it will lookup the route
+  pointing to this tap and offer that as dhcp
+  allowing a unknowing client to use dhcp on a unnumbered
+  uplink

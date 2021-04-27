@@ -1,0 +1,14 @@
+[Unit]
+Description=DHCPD unnumbered
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+EnvironmentFile=/etc/default/dhcpd-unnumbered
+ExecStart=/usr/sbin/dhcpd-unnumbered ${OPT}
+StandardOutput=journal+console
+StandardError=journal+console
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
