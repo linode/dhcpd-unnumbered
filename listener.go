@@ -126,6 +126,12 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 	}
 	ll.Debugf("Routes found for Interface %v: %v", ifi.Name, rts)
 
+	// seems like we have no host routes, not providing DHCP
+	if rts == nil {
+		ll.Infof("seems like we have no host routes, not providing DHCP")
+		return
+	}
+
 	// by default set the first IP in our return slice of routes
 	pickedIP := rts[0].IP
 
