@@ -1,3 +1,3 @@
 library 'ui-builder'
 
-buildGoDeb(dhcpd-unnumbered)
+buildGoDeb("dhcpd-unnumbered")
