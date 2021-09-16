@@ -32,7 +32,8 @@ func Start() (*Servers, error) {
 
 	l4, err := listen4()
 	if err != nil {
-		goto cleanup
+		srv.Close()
+		return nil, err
 	}
 	srv.listen = l4
 	go func() {
@@ -40,8 +41,4 @@ func Start() (*Servers, error) {
 	}()
 
 	return &srv, nil
-
-cleanup:
-	srv.Close()
-	return nil, err
 }
