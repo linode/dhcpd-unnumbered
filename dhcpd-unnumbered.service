@@ -5,7 +5,7 @@ After=network-online.target
 
 [Service]
 EnvironmentFile=-/etc/default/dhcpd-unnumbered
-ExecStart=/usr/sbin/dhcpd-unnumbered ${OPT}
+ExecStart=/usr/sbin/dhcpd-unnumbered $DHCPD_UNNUMBERED_OPT
 Restart=on-failure
 
 [Install]
