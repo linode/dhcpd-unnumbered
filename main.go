@@ -26,6 +26,7 @@ var (
 	flagLeaseTime  = flag.Duration("leasetime", (30 * time.Minute), "DHCP lease time.")
 	flagTapRegex   = flag.String("regex", "tap.*_0", "regex to match interfaces.")
 	flagPvtIPs     = flag.String("pvtcidr", "192.168.0.0/16", "private IP range. this IP CIDR will not be used for DHCP leases")
+	flagDynHost    = flag.Bool("dynhost", false, "dynamic hostname generated from IP.domainname")
 	flagHostname   = flag.String("hostname", "localhost", "hostname to be handed out in dhcp offeres")
 	flagDomainname = flag.String("domainname", "localdomain", "domainname to be handed out in dhcp offeres")
 	flagBootfile   = flag.String("bootfile", "", "boot file to offer in DHCP replies")
@@ -115,6 +116,13 @@ func main() {
 	fn()
 
 	ll.Infof("Setting log level to '%s'", ll.GetLevel())
+	if *flagDynHost {
+		ll.Infof("Using dynamic hostnames based on IP")
+	} else {
+		ll.Infof("Sending %s for hostname", *flagHostname)
+	}
+
+	ll.Infof("Sending %s for domainname", *flagDomainname)
 
 	var err error
 	regex, err = regexp.Compile(*flagTapRegex)

@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"net"
+	"strings"
 
 	"github.com/insomniacslk/dhcp/dhcpv4"
 	"github.com/insomniacslk/dhcp/dhcpv4/server4"
@@ -164,13 +165,17 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 
 	//this should not be needed. only for dhcp relay which we don't use/do. needs to be tested
 	//resp.GatewayIPAddr = gw
+	hostname := *flagHostname
+	if *flagDynHost {
+		hostname = strings.ReplaceAll(pickedIP.String(), ".", "-")
+	}
 
 	resp.YourIPAddr = pickedIP
 	resp.UpdateOption(dhcpv4.OptRouter(gw))
 	resp.UpdateOption(dhcpv4.OptSubnetMask(net.CIDRMask(24, 32)))
 	resp.UpdateOption(dhcpv4.OptIPAddressLeaseTime(*flagLeaseTime))
 
-	resp.UpdateOption(dhcpv4.OptHostName(*flagHostname))
+	resp.UpdateOption(dhcpv4.OptHostName(hostname))
 	resp.UpdateOption(dhcpv4.OptDomainName(*flagDomainname))
 	resp.UpdateOption(dhcpv4.OptDNS(myDNS...))
 
