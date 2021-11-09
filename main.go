@@ -10,7 +10,6 @@ import (
 	"time"
 
 	ll "github.com/sirupsen/logrus"
-	"github.com/vishvananda/netlink"
 )
 
 const (
@@ -22,6 +21,7 @@ var (
 	regex         *regexp.Regexp
 	pvtIPs        *net.IPNet
 	myDNS         listIP
+
 	flagLogLevel  = flag.String("loglevel", "info", fmt.Sprintf("Log level. One of %v", getLogLevels()))
 	flagLeaseTime = flag.Duration("leasetime", (30 * time.Minute), "DHCP lease time.")
 	flagTapRegex  = flag.String("regex", "tap.*_0", "regex to match interfaces.")
@@ -30,13 +30,13 @@ var (
 		"192.168.0.0/16",
 		"private IP range. this IP CIDR will not be used for DHCP leases",
 	)
-	flagDynHost          = flag.Bool("dynamic-host", false, "dynamic hostname generated from IP.domainname")
+	flagDynHost          = flag.Bool("dynamic-hostname", false, "dynamic hostname generated from IP.domainname")
 	flagHostnameOverride = flag.Bool(
-		"host-name-override",
+		"hostname-override",
 		false,
-		"read hostname override from path/hostname.interfacename",
+		"read hostname override from hostname-pathpath/hostname.interfacename",
 	)
-	flagHostnamePath = flag.String("hostname-override-path", "", "path where to find hostname override files")
+	flagHostnamePath = flag.String("hostname-path-prefix", "", "path/prefix where to find hostname override files. I will look in path+interfaceName for a name to override")
 	flagHostname     = flag.String("hostname", "localhost", "hostname to be handed out in dhcp offeres")
 	flagDomainname   = flag.String("domainname", "localdomain", "domainname to be handed out in dhcp offeres")
 	flagBootfile     = flag.String("bootfile", "", "boot file to offer in DHCP replies")
@@ -47,25 +47,6 @@ var (
 	bufpool = sync.Pool{New: func() interface{} { r := make([]byte, MaxDatagram); return &r }}
 )
 
-type listIP []net.IP
-
-func (ip *listIP) String() string {
-	var s string
-	for _, i := range *ip {
-		s = s + " " + i.String()
-	}
-	return s
-}
-
-func (ip *listIP) Set(value string) error {
-	newIP := net.ParseIP(value)
-	if newIP != nil {
-		*ip = append(*ip, newIP)
-		return nil
-	}
-	return fmt.Errorf("invalid ip: %v", value)
-}
-
 var logLevels = map[string]func(){
 	"none":    func() { ll.SetOutput(ioutil.Discard) },
 	"trace":   func() { ll.SetLevel(ll.TraceLevel) },
@@ -74,40 +55,6 @@ var logLevels = map[string]func(){
 	"warning": func() { ll.SetLevel(ll.WarnLevel) },
 	"error":   func() { ll.SetLevel(ll.ErrorLevel) },
 	"fatal":   func() { ll.SetLevel(ll.FatalLevel) },
-}
-
-func getLogLevels() []string {
-	var levels []string
-	for k := range logLevels {
-		levels = append(levels, k)
-	}
-	return levels
-}
-
-func getHostRoutesIpv4(ifName string) ([]*net.IPNet, error) {
-	nlh, err := netlink.NewHandle()
-	defer nlh.Delete()
-	if err != nil {
-		return nil, fmt.Errorf("unable to hook into netlink: %v", err)
-	}
-
-	link, err := netlink.LinkByName(ifName)
-	if err != nil {
-		return nil, fmt.Errorf("unable to get link info: %v", err)
-	}
-
-	ro, err := nlh.RouteList(link, 4)
-	if err != nil {
-		return nil, fmt.Errorf("unable to get routes: %v", err)
-	}
-	var r []*net.IPNet
-	for _, d := range ro {
-		m, l := d.Dst.Mask.Size()
-		if m == 32 && l == 32 {
-			r = append(r, d.Dst)
-		}
-	}
-	return r, nil
 }
 
 func main() {

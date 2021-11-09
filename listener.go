@@ -3,13 +3,12 @@ package main
 import (
 	"io"
 	"net"
-	"os"
-	"strings"
 
 	"github.com/insomniacslk/dhcp/dhcpv4"
 	"github.com/insomniacslk/dhcp/dhcpv4/server4"
-	ll "github.com/sirupsen/logrus"
+
 	"golang.org/x/net/ipv4"
+	ll "github.com/sirupsen/logrus"
 )
 
 type listener4 struct {
@@ -61,15 +60,6 @@ func (l *listener4) Serve() error {
 		}
 		go l.HandleMsg4(b[:n], oob, peer.(*net.UDPAddr))
 	}
-}
-
-// I can read a hostname override from a file
-func getStaticHostname(ifName string) (string, error) {
-	h, err := os.ReadFile(*flagHostnamePath + ifName)
-	if err != nil {
-		return "", err
-	}
-	return string(h), nil
 }
 
 func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.Addr) {
@@ -178,15 +168,26 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 
 	// should I generate a dynamic hostname?
 	hostname := *flagHostname
-	if *flagDynHost {
-		hostname = strings.ReplaceAll(pickedIP.String(), ".", "-")
-	}
+	domainname := *flagDomainname
 
-	// I can read a hostname override from a file
-	if *flagHostnameOverride {
-		h, err := getStaticHostname(ifi.Name)
+
+	// find dynamic hostname if feature is enabled
+	if *flagDynHost {
+		h, d, err := getDynamicHostname(pickedIP)
 		if err == nil {
 			hostname = h
+			domainname = d
+		}
+	}
+
+	// static hostname in a file (if exists) will supersede the dynamic hostname
+	if *flagHostnameOverride {
+		h, d, err := getHostnameOverride(ifi.Name)
+		if err == nil {
+			hostname = h
+			if d != "" {
+				domainname = d
+			}
 		} else {
 			ll.Warnf("unable to set static hostname: %v", err)
 		}
@@ -199,7 +200,7 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 	resp.UpdateOption(dhcpv4.OptIPAddressLeaseTime(*flagLeaseTime))
 
 	resp.UpdateOption(dhcpv4.OptHostName(hostname))
-	resp.UpdateOption(dhcpv4.OptDomainName(*flagDomainname))
+	resp.UpdateOption(dhcpv4.OptDomainName(domainname))
 	resp.UpdateOption(dhcpv4.OptDNS(myDNS...))
 
 	resp.UpdateOption(dhcpv4.OptBootFileName(*flagBootfile))
@@ -241,12 +242,13 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 	}
 
 	ll.Infof(
-		"Responding to %v on %v with %v lease %v and hostname %v",
+		"Responding to %v on %v with %v lease %v and hostname %v.%v",
 		peer.IP,
 		ifi.Name,
 		pickedIP,
 		*flagLeaseTime,
 		hostname,
+		domainname,
 	)
 	ll.Trace(resp.Summary())
 
