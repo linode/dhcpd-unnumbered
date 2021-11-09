@@ -18,9 +18,9 @@ const (
 )
 
 var (
-	regex         *regexp.Regexp
-	pvtIPs        *net.IPNet
-	myDNS         listIP
+	regex  *regexp.Regexp
+	pvtIPs *net.IPNet
+	myDNS  listIP
 
 	flagLogLevel  = flag.String("loglevel", "info", fmt.Sprintf("Log level. One of %v", getLogLevels()))
 	flagLeaseTime = flag.Duration("leasetime", (30 * time.Minute), "DHCP lease time.")
@@ -36,11 +36,15 @@ var (
 		false,
 		"read hostname override from hostname-pathpath/hostname.interfacename",
 	)
-	flagHostnamePath = flag.String("hostname-path-prefix", "", "path/prefix where to find hostname override files. I will look in path+interfaceName for a name to override")
-	flagHostname     = flag.String("hostname", "localhost", "hostname to be handed out in dhcp offeres")
-	flagDomainname   = flag.String("domainname", "localdomain", "domainname to be handed out in dhcp offeres")
-	flagBootfile     = flag.String("bootfile", "", "boot file to offer in DHCP replies")
-	flagTftpIP       = flag.String("tftp", "", "tftp srv to offer in DHCP replies")
+	flagHostnamePath = flag.String(
+		"hostname-path-prefix",
+		"",
+		"path/prefix where to find hostname override files. I will look in path+interfaceName for a name to override",
+	)
+	flagHostname   = flag.String("hostname", "localhost", "hostname to be handed out in dhcp offeres")
+	flagDomainname = flag.String("domainname", "localdomain", "domainname to be handed out in dhcp offeres")
+	flagBootfile   = flag.String("bootfile", "", "boot file to offer in DHCP replies")
+	flagTftpIP     = flag.String("tftp", "", "tftp srv to offer in DHCP replies")
 
 	// XXX: performance-wise, Pool may or may not be good (see https://github.com/golang/go/issues/23199)
 	// Interface is good for what we want. Maybe "just" trust the GC and we'll be fine ?
@@ -79,7 +83,7 @@ func main() {
 		ll.Infof("Sending %s for hostname", *flagHostname)
 	}
 
-	ll.Infof("Sending %s for domainname", *flagDomainname)
+	//ll.Infof("Sending %s for domainname", *flagDomainname)
 
 	var err error
 	regex, err = regexp.Compile(*flagTapRegex)

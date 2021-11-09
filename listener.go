@@ -7,8 +7,8 @@ import (
 	"github.com/insomniacslk/dhcp/dhcpv4"
 	"github.com/insomniacslk/dhcp/dhcpv4/server4"
 
-	"golang.org/x/net/ipv4"
 	ll "github.com/sirupsen/logrus"
+	"golang.org/x/net/ipv4"
 )
 
 type listener4 struct {
@@ -170,7 +170,6 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 	hostname := *flagHostname
 	domainname := *flagDomainname
 
-
 	// find dynamic hostname if feature is enabled
 	if *flagDynHost {
 		h, d, err := getDynamicHostname(pickedIP)
@@ -189,7 +188,7 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 				domainname = d
 			}
 		} else {
-			ll.Warnf("unable to set static hostname: %v", err)
+			ll.Debugf("unable to get static hostname: %v", err)
 		}
 	}
 
