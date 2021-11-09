@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"net"
+	"os"
 	"strings"
 
 	"github.com/insomniacslk/dhcp/dhcpv4"
@@ -60,6 +61,15 @@ func (l *listener4) Serve() error {
 		}
 		go l.HandleMsg4(b[:n], oob, peer.(*net.UDPAddr))
 	}
+}
+
+// I can read a hostname override from a file
+func getStaticHostname(ifName string) (string, error) {
+	h, err := os.ReadFile(*flagHostnamePath + ifName)
+	if err != nil {
+		return "", err
+	}
+	return string(h), nil
 }
 
 func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.Addr) {
@@ -165,11 +175,24 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 
 	//this should not be needed. only for dhcp relay which we don't use/do. needs to be tested
 	//resp.GatewayIPAddr = gw
+
+	// should I generate a dynamic hostname?
 	hostname := *flagHostname
 	if *flagDynHost {
 		hostname = strings.ReplaceAll(pickedIP.String(), ".", "-")
 	}
 
+	// I can read a hostname override from a file
+	if *flagHostnameOverride {
+		h, err := getStaticHostname(ifi.Name)
+		if err == nil {
+			hostname = h
+		} else {
+			ll.Warnf("unable to set static hostname: %v", err)
+		}
+	}
+
+	// lets go compile the response
 	resp.YourIPAddr = pickedIP
 	resp.UpdateOption(dhcpv4.OptRouter(gw))
 	resp.UpdateOption(dhcpv4.OptSubnetMask(net.CIDRMask(24, 32)))
@@ -217,7 +240,14 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 		}
 	}
 
-	ll.Infof("Responding to %v on %v with %v lease %v", peer.IP, ifi.Name, pickedIP, *flagLeaseTime)
+	ll.Infof(
+		"Responding to %v on %v with %v lease %v and hostname %v",
+		peer.IP,
+		ifi.Name,
+		pickedIP,
+		*flagLeaseTime,
+		hostname,
+	)
 	ll.Trace(resp.Summary())
 
 	if _, err := l.WriteTo(resp.ToBytes(), woob, peer); err != nil {

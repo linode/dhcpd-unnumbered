@@ -19,18 +19,28 @@ const (
 )
 
 var (
-	regex          *regexp.Regexp
-	pvtIPs         *net.IPNet
-	myDNS          listIP
-	flagLogLevel   = flag.String("loglevel", "info", fmt.Sprintf("Log level. One of %v", getLogLevels()))
-	flagLeaseTime  = flag.Duration("leasetime", (30 * time.Minute), "DHCP lease time.")
-	flagTapRegex   = flag.String("regex", "tap.*_0", "regex to match interfaces.")
-	flagPvtIPs     = flag.String("pvtcidr", "192.168.0.0/16", "private IP range. this IP CIDR will not be used for DHCP leases")
-	flagDynHost    = flag.Bool("dynhost", false, "dynamic hostname generated from IP.domainname")
-	flagHostname   = flag.String("hostname", "localhost", "hostname to be handed out in dhcp offeres")
-	flagDomainname = flag.String("domainname", "localdomain", "domainname to be handed out in dhcp offeres")
-	flagBootfile   = flag.String("bootfile", "", "boot file to offer in DHCP replies")
-	flagTftpIP     = flag.String("tftp", "", "tftp srv to offer in DHCP replies")
+	regex         *regexp.Regexp
+	pvtIPs        *net.IPNet
+	myDNS         listIP
+	flagLogLevel  = flag.String("loglevel", "info", fmt.Sprintf("Log level. One of %v", getLogLevels()))
+	flagLeaseTime = flag.Duration("leasetime", (30 * time.Minute), "DHCP lease time.")
+	flagTapRegex  = flag.String("regex", "tap.*_0", "regex to match interfaces.")
+	flagPvtIPs    = flag.String(
+		"pvtcidr",
+		"192.168.0.0/16",
+		"private IP range. this IP CIDR will not be used for DHCP leases",
+	)
+	flagDynHost          = flag.Bool("dynamic-host", false, "dynamic hostname generated from IP.domainname")
+	flagHostnameOverride = flag.Bool(
+		"host-name-override",
+		false,
+		"read hostname override from path/hostname.interfacename",
+	)
+	flagHostnamePath = flag.String("hostname-override-path", "", "path where to find hostname override files")
+	flagHostname     = flag.String("hostname", "localhost", "hostname to be handed out in dhcp offeres")
+	flagDomainname   = flag.String("domainname", "localdomain", "domainname to be handed out in dhcp offeres")
+	flagBootfile     = flag.String("bootfile", "", "boot file to offer in DHCP replies")
+	flagTftpIP       = flag.String("tftp", "", "tftp srv to offer in DHCP replies")
 
 	// XXX: performance-wise, Pool may or may not be good (see https://github.com/golang/go/issues/23199)
 	// Interface is good for what we want. Maybe "just" trust the GC and we'll be fine ?
