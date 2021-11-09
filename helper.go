@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
+	"github.com/vishvananda/netlink"
 	"net"
 	"os"
 	"strings"
-	"github.com/vishvananda/netlink"
 )
 
 // getHostnameOverride returns a hoostname (and if applicable) a domainname read from a static file based on path+ifName
