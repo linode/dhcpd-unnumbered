@@ -161,14 +161,20 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 	//this should not be needed. only for dhcp relay which we don't use/do. needs to be tested
 	//resp.GatewayIPAddr = gw
 	mods = append(mods, dhcpv4.WithClientIP(pickedIP))
+	mods = append(mods, dhcpv4.WithYourIP(pickedIP))
 	mods = append(mods, dhcpv4.WithNetmask(net.CIDRMask(24, 32)))
 	mods = append(mods, dhcpv4.WithRouter(gw))
 	mods = append(mods, dhcpv4.WithDNS(myDNS...))
 	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptIPAddressLeaseTime(*flagLeaseTime)))
 	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptHostName(hostname)))
 	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptDomainName(domainname)))
-	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptBootFileName(*flagBootfile)))
-	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptTFTPServerName(*flagTftpIP)))
+
+	if *flagBootfile != "" {
+		mods = append(mods, dhcpv4.WithOption(dhcpv4.OptBootFileName(*flagBootfile)))
+	}
+	if *flagTftpIP != "" {
+		mods = append(mods, dhcpv4.WithOption(dhcpv4.OptTFTPServerName(*flagTftpIP)))
+	}
 
 	switch mt := req.MessageType(); mt {
 	case dhcpv4.MessageTypeDiscover:

@@ -72,10 +72,13 @@ func main() {
 	fn()
 
 	ll.Infof("Setting log level to '%s'", ll.GetLevel())
+
 	if *flagDynHost {
-		ll.Infof("Using dynamic hostnames based on IP")
-	} else {
-		ll.Infof("Sending %s for hostname", *flagHostname)
+		ll.Infof("Dynamic hostnames based on IP enabled")
+	}
+
+	if *flagHostnameOverride {
+		ll.Infof("Hostname override enabled from %s", *flagHostnamePath)
 	}
 
 	//ll.Infof("Sending %s for domainname", *flagDomainname)
