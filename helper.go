@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/vishvananda/netlink"
 	"net"
 	"os"
 	"strings"
+
+	"github.com/vishvananda/netlink"
 )
 
 // getHostnameOverride returns a hoostname (and if applicable) a domainname read from a static file based on path+ifName
@@ -15,7 +16,10 @@ func getHostnameOverride(ifName string) (string, string, error) {
 		return "", "", err
 	}
 	s := strings.SplitN(strings.TrimSpace(string(h)), ".", 2)
-	return s[0], s[1], nil
+	if len(s) > 1 {
+		return s[0], s[1], nil
+	}
+	return s[0], "", nil
 }
 
 // getDynamicHostname will generate hostname from IP and predefined domainname

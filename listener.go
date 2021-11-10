@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io"
 	"net"
 
 	"github.com/insomniacslk/dhcp/dhcpv4"
@@ -14,10 +13,6 @@ import (
 type listener4 struct {
 	*ipv4.PacketConn
 	net.Interface
-}
-
-type listener interface {
-	io.Closer
 }
 
 func listen4() (*listener4, error) {
@@ -50,9 +45,7 @@ func listen4() (*listener4, error) {
 func (l *listener4) Serve() error {
 	ll.Infof("Listen %s", l.LocalAddr())
 	for {
-		b := *bufpool.Get().(*[]byte)
-		b = b[:MaxDatagram] //Reslice to max capacity in case the buffer in pool was resliced smaller
-
+		b := make([]byte, MaxDatagram)
 		n, oob, peer, err := l.ReadFrom(b)
 		if err != nil {
 			ll.Errorf("Error reading from connection: %v", err)
@@ -63,11 +56,6 @@ func (l *listener4) Serve() error {
 }
 
 func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.Addr) {
-	var (
-		resp *dhcpv4.DHCPv4
-		err  error
-	)
-
 	ifi, err := net.InterfaceByIndex(oob.IfIndex)
 	if err != nil {
 		ll.Errorf("Error getting request interface: %v", err)
@@ -75,13 +63,12 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 	}
 
 	req, err := dhcpv4.FromBytes(buf)
-	bufpool.Put(&buf)
 	if err != nil {
 		ll.Errorf("Error parsing DHCPv4 request: %v", err)
 		return
 	}
 
-	ll.Debugf("received request on %v", ifi.Name)
+	ll.Debugf("received %s on %v", req.MessageType(), ifi.Name)
 	ll.Trace(req.Summary())
 
 	if !(regex.Match([]byte(ifi.Name))) {
@@ -96,27 +83,6 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 
 	if req.OpCode != dhcpv4.OpcodeBootRequest {
 		ll.Warnf("Unsupported opcode %d. Only BootRequest (%d) is supported", req.OpCode, dhcpv4.OpcodeBootRequest)
-		return
-	}
-
-	resp, err = dhcpv4.NewReplyFromRequest(req)
-	if err != nil {
-		ll.Errorf("Failed to compile reply: %v", err)
-		return
-	}
-
-	switch mt := req.MessageType(); mt {
-	case dhcpv4.MessageTypeDiscover:
-		resp.UpdateOption(dhcpv4.OptMessageType(dhcpv4.MessageTypeOffer))
-	case dhcpv4.MessageTypeRequest:
-		resp.UpdateOption(dhcpv4.OptMessageType(dhcpv4.MessageTypeAck))
-	default:
-		ll.Warnf("Unhandled message type: %v", mt)
-		return
-	}
-
-	if resp == nil {
-		ll.Warnln("Dropping request because response is nil")
 		return
 	}
 
@@ -163,9 +129,6 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 	// we actually don't care at all what the gw IP is, its really just to make the client's tcp/ip stack happy
 	gw := net.IPv4(pickedIP[0], pickedIP[1], pickedIP[2], 1)
 
-	//this should not be needed. only for dhcp relay which we don't use/do. needs to be tested
-	//resp.GatewayIPAddr = gw
-
 	// should I generate a dynamic hostname?
 	hostname := *flagHostname
 	domainname := *flagDomainname
@@ -193,17 +156,35 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 	}
 
 	// lets go compile the response
-	resp.YourIPAddr = pickedIP
-	resp.UpdateOption(dhcpv4.OptRouter(gw))
-	resp.UpdateOption(dhcpv4.OptSubnetMask(net.CIDRMask(24, 32)))
-	resp.UpdateOption(dhcpv4.OptIPAddressLeaseTime(*flagLeaseTime))
+	var mods []dhcpv4.Modifier
+	//mods = append(mods, dhcpv4.WithBroadCast(false))
+	//this should not be needed. only for dhcp relay which we don't use/do. needs to be tested
+	//resp.GatewayIPAddr = gw
+	mods = append(mods, dhcpv4.WithClientIP(pickedIP))
+	mods = append(mods, dhcpv4.WithNetmask(net.CIDRMask(24, 32)))
+	mods = append(mods, dhcpv4.WithRouter(gw))
+	mods = append(mods, dhcpv4.WithDNS(myDNS...))
+	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptIPAddressLeaseTime(*flagLeaseTime)))
+	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptHostName(hostname)))
+	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptDomainName(domainname)))
+	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptBootFileName(*flagBootfile)))
+	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptTFTPServerName(*flagTftpIP)))
 
-	resp.UpdateOption(dhcpv4.OptHostName(hostname))
-	resp.UpdateOption(dhcpv4.OptDomainName(domainname))
-	resp.UpdateOption(dhcpv4.OptDNS(myDNS...))
+	switch mt := req.MessageType(); mt {
+	case dhcpv4.MessageTypeDiscover:
+		mods = append(mods, dhcpv4.WithMessageType(dhcpv4.MessageTypeOffer))
+	case dhcpv4.MessageTypeRequest:
+		mods = append(mods, dhcpv4.WithMessageType(dhcpv4.MessageTypeAck))
+	default:
+		ll.Warnf("Unhandled message type: %v", mt)
+		return
+	}
 
-	resp.UpdateOption(dhcpv4.OptBootFileName(*flagBootfile))
-	resp.UpdateOption(dhcpv4.OptTFTPServerName(*flagTftpIP))
+	resp, err := dhcpv4.NewReplyFromRequest(req, mods...)
+	if err != nil {
+		ll.Errorf("Failed to compile reply: %v", err)
+		return
+	}
 
 	var peer *net.UDPAddr
 	//if !req.GatewayIPAddr.IsUnspecified() {
@@ -220,7 +201,7 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 		// address that's not yet assigned.
 		// I don't know how to do that with this API...
 		//peer = &net.UDPAddr{IP: resp.YourIPAddr, Port: dhcpv4.ClientPort}
-		ll.Debugln("Cannot handle non-broadcast-capable unspecified peers in an RFC-compliant way. Response will be broadcast")
+		ll.Traceln("Cannot handle non-broadcast-capable unspecified peers in an RFC-compliant way. Response will be broadcast")
 		peer = &net.UDPAddr{IP: net.IPv4bcast, Port: dhcpv4.ClientPort}
 	}
 
@@ -241,7 +222,8 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 	}
 
 	ll.Infof(
-		"Responding to %v on %v with %v lease %v and hostname %v.%v",
+		"%s to %s on %s with %s lease %s and hostname %s.%s",
+		resp.MessageType(),
 		peer.IP,
 		ifi.Name,
 		pickedIP,

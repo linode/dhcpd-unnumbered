@@ -5,7 +5,7 @@ import (
 )
 
 type Servers struct {
-	listen listener
+	listen *listener4
 	errors chan error
 }
 
