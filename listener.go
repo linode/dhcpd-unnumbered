@@ -160,9 +160,9 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 	//mods = append(mods, dhcpv4.WithBroadCast(false))
 	//this should not be needed. only for dhcp relay which we don't use/do. needs to be tested
 	//resp.GatewayIPAddr = gw
-	mods = append(mods, dhcpv4.WithClientIP(pickedIP))
 	mods = append(mods, dhcpv4.WithYourIP(pickedIP))
 	mods = append(mods, dhcpv4.WithNetmask(net.CIDRMask(24, 32)))
+	mods = append(mods, dhcpv4.WithServerIP(gw))
 	mods = append(mods, dhcpv4.WithRouter(gw))
 	mods = append(mods, dhcpv4.WithDNS(myDNS...))
 	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptIPAddressLeaseTime(*flagLeaseTime)))
@@ -193,6 +193,7 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 	}
 
 	var peer *net.UDPAddr
+	//only needed if we wanna support dhcp relay, we don't need that
 	//if !req.GatewayIPAddr.IsUnspecified() {
 	//	// TODO: make RFC8357 compliant
 	//	peer = &net.UDPAddr{IP: req.GatewayIPAddr, Port: dhcpv4.ServerPort}
@@ -211,20 +212,10 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 		peer = &net.UDPAddr{IP: net.IPv4bcast, Port: dhcpv4.ClientPort}
 	}
 
-	var woob *ipv4.ControlMessage
-	//if peer.IP.Equal(net.IPv4bcast) || peer.IP.IsLinkLocalUnicast() {
-	if peer.IP.Equal(net.IPv4bcast) {
-		// Direct broadcasts and link-local to the interface the request was
-		// received on. Other packets should use the normal routing table in
-		// case of asymetric routing
-		switch {
-		//case l.Interface.Index != 0:
-		//	woob = &ipv4.ControlMessage{IfIndex: l.Interface.Index}
-		case oob != nil && oob.IfIndex != 0:
-			woob = &ipv4.ControlMessage{IfIndex: oob.IfIndex}
-		default:
-			ll.Warnf("Did not receive detailed interface information from caller...")
-		}
+	woob := &ipv4.ControlMessage{
+		IfIndex: oob.IfIndex,
+		//would be nice to set a public source IP but using simple packetConn I can only set a configured ip on the interface, which we have none, so letting the kernel pick
+		//Src:     net.IPv4bcast,
 	}
 
 	ll.Infof(
