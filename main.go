@@ -21,7 +21,6 @@ var (
 	pvtIPs *net.IPNet
 	myDNS  listIP
 
-	flagLogLevel  = flag.String("loglevel", "info", fmt.Sprintf("Log level. One of %v", getLogLevels()))
 	flagLeaseTime = flag.Duration("leasetime", (30 * time.Minute), "DHCP lease time.")
 	flagTapRegex  = flag.String("regex", "tap.*_0", "regex to match interfaces.")
 	flagPvtIPs    = flag.String(
@@ -44,19 +43,20 @@ var (
 	flagDomainname = flag.String("domainname", "localdomain", "domainname to be handed out in dhcp offeres")
 	flagBootfile   = flag.String("bootfile", "", "boot file to offer in DHCP replies")
 	flagTftpIP     = flag.String("tftp", "", "tftp srv to offer in DHCP replies")
+
+	logLevels = map[string]func(){
+		"none":    func() { ll.SetOutput(ioutil.Discard) },
+		"trace":   func() { ll.SetLevel(ll.TraceLevel) },
+		"debug":   func() { ll.SetLevel(ll.DebugLevel) },
+		"info":    func() { ll.SetLevel(ll.InfoLevel) },
+		"warning": func() { ll.SetLevel(ll.WarnLevel) },
+		"error":   func() { ll.SetLevel(ll.ErrorLevel) },
+		"fatal":   func() { ll.SetLevel(ll.FatalLevel) },
+	}
 )
 
-var logLevels = map[string]func(){
-	"none":    func() { ll.SetOutput(ioutil.Discard) },
-	"trace":   func() { ll.SetLevel(ll.TraceLevel) },
-	"debug":   func() { ll.SetLevel(ll.DebugLevel) },
-	"info":    func() { ll.SetLevel(ll.InfoLevel) },
-	"warning": func() { ll.SetLevel(ll.WarnLevel) },
-	"error":   func() { ll.SetLevel(ll.ErrorLevel) },
-	"fatal":   func() { ll.SetLevel(ll.FatalLevel) },
-}
-
 func main() {
+	flagLogLevel := flag.String("loglevel", "info", fmt.Sprintf("Log level. One of %v", getLogLevels()))
 	flag.Var(&myDNS, "dns", "dns server to use in DHCP offer, option can be used multiple times for more than 1 server")
 	flag.Parse()
 
@@ -65,11 +65,11 @@ func main() {
 		PadLevelText:  true,
 	})
 
-	fn, ok := logLevels[*flagLogLevel]
+	loglevel, ok := logLevels[*flagLogLevel]
 	if !ok {
 		ll.Fatalf("Invalid log level '%s'. Valid log levels are %v", *flagLogLevel, getLogLevels())
 	}
-	fn()
+	loglevel()
 
 	ll.Infof("Setting log level to '%s'", ll.GetLevel())
 
@@ -80,8 +80,6 @@ func main() {
 	if *flagHostnameOverride {
 		ll.Infof("Hostname override enabled from %s", *flagHostnamePath)
 	}
-
-	//ll.Infof("Sending %s for domainname", *flagDomainname)
 
 	var err error
 	regex, err = regexp.Compile(*flagTapRegex)
@@ -112,6 +110,7 @@ func main() {
 		ll.Fatal(err)
 	}
 	if err := srv.Wait(); err != nil {
-		ll.Info(err)
+		ll.Fatalf("Unexpected server exit: %s", err)
 	}
+	ll.Info("closing...")
 }
