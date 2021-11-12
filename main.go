@@ -26,20 +26,24 @@ var (
 	flagPvtIPs    = flag.String(
 		"pvtcidr",
 		"192.168.0.0/16",
-		"private IP range. this IP CIDR will not be used for DHCP leases",
+		"private IP range. IPs in this range don't quallify for initial DHCP offeres, even if assigned to requesting tap",
 	)
-	flagDynHost          = flag.Bool("dynamic-hostname", false, "dynamic hostname generated from IP.domainname")
+	flagDynHost          = flag.Bool("dynamic-hostname", false, "dynamic hostname generated from {IP/./-}.domainname")
 	flagHostnameOverride = flag.Bool(
 		"hostname-override",
 		false,
-		"read hostname override from hostname-pathpath/hostname.interfacename",
+		"read hostname from <override-file-prefix + receiving interface name>, i.e. /var/lib/dhcpd-unnumbered/hostname.tap.XXXX_0",
 	)
 	flagHostnamePath = flag.String(
-		"hostname-path-prefix",
-		"",
-		"path/prefix where to find hostname override files. I will look in path+interfaceName for a name to override",
+		"override-file-prefix",
+		"/var/lib/dhcpd-unnumbered/hostname.",
+		"path and file-prefix where to find hostname override files. I will concat this string with interface name request was received on to find a hostname override, if the file is missing we fall back to either dynamic or static hostname as appropriate",
 	)
-	flagHostname   = flag.String("hostname", "localhost", "hostname to be handed out in dhcp offeres")
+	flagHostname = flag.String(
+		"hostname",
+		"localhost",
+		"static hostname to be handed out in dhcp offeres, is ignored if dynamic-hostname is enabled",
+	)
 	flagDomainname = flag.String("domainname", "localdomain", "domainname to be handed out in dhcp offeres")
 	flagBootfile   = flag.String("bootfile", "", "boot file to offer in DHCP replies")
 	flagTftpIP     = flag.String("tftp", "", "tftp srv to offer in DHCP replies")
