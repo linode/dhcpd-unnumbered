@@ -101,7 +101,6 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 
 	// by default set the first IP in our return slice of routes
 	pickedIP := rts[0].IP
-
 	for _, ip := range rts {
 		// however, check if the client requests a specific IP *and* still owns it, if so let 'em have it, even if private
 		if req.RequestedIPAddress().Equal(ip.IP) {
@@ -128,6 +127,9 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 	// the default gateway handed out by DHCP is the .1 of whatever /24 subnet the client gets handed out.
 	// we actually don't care at all what the gw IP is, its really just to make the client's tcp/ip stack happy
 	gw := net.IPv4(pickedIP[0], pickedIP[1], pickedIP[2], 1)
+
+	// mix DNS but mix em consistently so same IP gets the same order
+	dns := mixDNS(pickedIP)
 
 	// should I generate a dynamic hostname?
 	hostname := *flagHostname
@@ -164,7 +166,7 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 	mods = append(mods, dhcpv4.WithNetmask(net.CIDRMask(24, 32)))
 	mods = append(mods, dhcpv4.WithServerIP(gw))
 	mods = append(mods, dhcpv4.WithRouter(gw))
-	mods = append(mods, dhcpv4.WithDNS(myDNS...))
+	mods = append(mods, dhcpv4.WithDNS(dns...))
 	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptIPAddressLeaseTime(*flagLeaseTime)))
 	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptHostName(hostname)))
 	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptDomainName(domainname)))
@@ -219,7 +221,7 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 	}
 
 	ll.Infof(
-		"%s to %s on %s with %s lease %s and hostname %s.%s",
+		"%s to %s on %s with %s, lease %s, hostname %s.%s, dns %s",
 		resp.MessageType(),
 		peer.IP,
 		ifi.Name,
@@ -227,6 +229,7 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 		*flagLeaseTime,
 		hostname,
 		domainname,
+		dns,
 	)
 	ll.Trace(resp.Summary())
 

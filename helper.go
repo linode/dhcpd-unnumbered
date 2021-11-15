@@ -22,6 +22,23 @@ func getHostnameOverride(ifName string) (string, string, error) {
 	return s[0], "", nil
 }
 
+// mixDNS sorts dns servers in a sudo-random way (the provided IP should always get back the same sequence of DNS)
+// TODO this can certainly be done better
+func mixDNS(ip net.IP) []net.IP {
+	l := len(myDNS)
+	m := int(ip[len(ip)-1]) % l // I know casting int here aint ideal but works for what we need it for
+	var mix []net.IP
+
+	for i := 0; i < l; i++ {
+		if i+m >= l {
+			m = m - l
+		}
+		mix = append(mix, myDNS[i+m])
+	}
+
+	return mix
+}
+
 // getDynamicHostname will generate hostname from IP and predefined domainname
 func getDynamicHostname(ip net.IP) (string, string, error) {
 	h := strings.ReplaceAll(ip.String(), ".", "-")
