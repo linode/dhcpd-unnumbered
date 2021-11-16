@@ -23,10 +23,10 @@ func getHostnameOverride(ifName string) (string, string, error) {
 }
 
 // mixDNS sorts dns servers in a sudo-random way (the provided IP should always get back the same sequence of DNS)
-// TODO this can certainly be done better
 func mixDNS(ip net.IP) []net.IP {
 	l := len(myDNS)
-	m := int(ip[len(ip)-1]) % l // I know casting int here aint ideal but works for what we need it for
+	// just mod over last octet of IP as it provides the highest diversity without causing much complexity
+	m := int(ip[len(ip)-1]) % l
 	var mix []net.IP
 
 	for i := 0; i < l; i++ {
