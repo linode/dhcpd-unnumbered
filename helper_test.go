@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net"
+	"os"
 	"testing"
 )
 
@@ -79,6 +80,17 @@ func TestGetDynamicHostname(t *testing.T) {
 	}
 }
 
+func overrideFile(t *testing.T, ifName, hostname string) {
+	*flagHostnamePath = "/tmp/"
+
+	s := []byte(hostname)
+	ioutil.WriteFile(*flagHostnamePath+ifName, s, 0644)
+
+	t.Cleanup(func() {
+		os.Remove(*flagHostnamePath + ifName)
+	})
+}
+
 func TestGetHostnameOverride(t *testing.T) {
 	tests := []struct {
 		ifName     string
@@ -92,8 +104,7 @@ func TestGetHostnameOverride(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("Test: %s", tc.ifName), func(t *testing.T) {
 
-			s := []byte(tc.wantHost + "." + tc.wantDomain)
-			ioutil.WriteFile(*flagHostnamePath+tc.ifName, s, 0644)
+			overrideFile(t, tc.ifName, tc.wantHost+"."+tc.wantDomain)
 
 			h, d, e := getHostnameOverride(tc.ifName)
 
