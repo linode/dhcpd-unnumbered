@@ -109,11 +109,11 @@ func main() {
 	ll.Infof("using DNS %v", myDNS)
 
 	// start server
-	srv, err := NewServer()
+	srv, err := NewListener()
 	if err != nil {
 		ll.Fatal(err)
 	}
-	if err := srv.Serve(); err != nil {
+	if err := srv.Listen(); err != nil {
 		ll.Fatalf("Unexpected server exit: %s", err)
 	}
 	ll.Info("closing...")
