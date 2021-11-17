@@ -9,6 +9,13 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
+// getDynamicHostname will generate hostname from IP and predefined domainname
+func getDynamicHostname(ip net.IP) (string, string, error) {
+	h := strings.ReplaceAll(ip.String(), ".", "-")
+	d := *flagDomainname
+	return h, d, nil
+}
+
 // getHostnameOverride returns a hoostname (and if applicable) a domainname read from a static file based on path+ifName
 func getHostnameOverride(ifName string) (string, string, error) {
 	h, err := os.ReadFile(*flagHostnamePath + ifName)
@@ -37,13 +44,6 @@ func mixDNS(ip net.IP) []net.IP {
 	}
 
 	return mix
-}
-
-// getDynamicHostname will generate hostname from IP and predefined domainname
-func getDynamicHostname(ip net.IP) (string, string, error) {
-	h := strings.ReplaceAll(ip.String(), ".", "-")
-	d := *flagDomainname
-	return h, d, nil
 }
 
 type listIP []net.IP
