@@ -10,10 +10,12 @@ import (
 	"golang.org/x/net/ipv4"
 )
 
+// Listener is the core struct
 type Listener struct {
 	c *ipv4.PacketConn
 }
 
+// NewListener creates a new instance of DHCP listener
 func NewListener() (*Listener, error) {
 	s := net.UDPAddr{
 		IP:   net.IPv4zero,
@@ -38,6 +40,7 @@ func NewListener() (*Listener, error) {
 	return &Listener{c: c}, nil
 }
 
+// Listen starts listening for incoming DHCP requests
 func (l *Listener) Listen() error {
 	ll.Infof("Listen %s", l.c.LocalAddr())
 	for {
