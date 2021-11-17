@@ -10,10 +10,8 @@ import (
 )
 
 // getDynamicHostname will generate hostname from IP and predefined domainname
-func getDynamicHostname(ip net.IP) (string, string, error) {
-	h := strings.ReplaceAll(ip.String(), ".", "-")
-	d := *flagDomainname
-	return h, d, nil
+func getDynamicHostname(ip net.IP) string {
+	return strings.ReplaceAll(ip.String(), ".", "-")
 }
 
 // getHostnameOverride returns a hoostname (and if applicable) a domainname read from a static file based on path+ifName

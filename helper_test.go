@@ -46,11 +46,31 @@ func TestMixDNS(t *testing.T) {
 		},
 	}
 
-	for i, tc := range tests {
-		t.Run(fmt.Sprintf("IP: %d", i), func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("Test: %s", tc.input), func(t *testing.T) {
 			out := mixDNS(tc.input)
 			if !IPsEqual(out, tc.want) {
 				t.Errorf("Failed ! got %s want %s", out, tc.want)
+			} else {
+				t.Logf("Success !")
+			}
+		})
+	}
+}
+
+func TestGetDynamicHostname(t *testing.T) {
+	tests := []struct {
+		input net.IP
+		want  string
+	}{
+		{net.IPv4(1, 1, 1, 1), "1-1-1-1"},
+		{net.IPv4(2, 2, 2, 2), "2-2-2-2"},
+	}
+
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("Test: %s", tc.input), func(t *testing.T) {
+			if h := getDynamicHostname(tc.input); h != tc.want {
+				t.Errorf("Failed ! got %s want %s", h, tc.want)
 			} else {
 				t.Logf("Success !")
 			}

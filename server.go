@@ -4,41 +4,27 @@ import (
 	ll "github.com/sirupsen/logrus"
 )
 
-type Servers struct {
-	listen *listener4
-	errors chan error
+type Srv struct {
+	l *Listener
 }
 
-// Wait waits until the end of the execution of the server.
-func (s *Servers) Wait() error {
-	err := <-s.errors
-	s.Close()
-	return err
-}
-
-// Close closes all listening connections
-func (s *Servers) Close() {
-	s.listen.Close()
-}
-
-// Start will start the server asynchronously. See `Wait` to wait until the execution ends.
-func Start() (*Servers, error) {
-	srv := Servers{
-		errors: make(chan error),
-	}
-
-	// listen
+// NewServer instantiates a server type
+func NewServer() (*Srv, error) {
 	ll.Infoln("Starting DHCPv4 server")
 
-	l4, err := listen4()
+	l, err := NewListener()
 	if err != nil {
-		srv.Close()
 		return nil, err
 	}
-	srv.listen = l4
-	go func() {
-		srv.errors <- l4.Serve()
-	}()
 
-	return &srv, nil
+	s := Srv{
+		l: l,
+	}
+
+	return &s, nil
+}
+
+// Serve starts the listener and blocks till error returns
+func (s *Srv) Serve() error {
+	return s.l.Listen()
 }

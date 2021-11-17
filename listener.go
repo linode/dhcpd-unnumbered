@@ -10,15 +10,11 @@ import (
 	"golang.org/x/net/ipv4"
 )
 
-type listener4 struct {
-	*ipv4.PacketConn
-	net.Interface
+type Listener struct {
+	c *ipv4.PacketConn
 }
 
-func listen4() (*listener4, error) {
-	var err error
-	l4 := listener4{}
-
+func NewListener() (*Listener, error) {
 	s := net.UDPAddr{
 		IP:   net.IPv4zero,
 		Port: 67,
@@ -30,32 +26,32 @@ func listen4() (*listener4, error) {
 		return nil, err
 	}
 
-	l4.PacketConn = ipv4.NewPacketConn(udpConn)
+	c := ipv4.NewPacketConn(udpConn)
 
 	// When not bound to an interface, we need the information in each
 	// packet to know which interface it came on
-	err = l4.SetControlMessage(ipv4.FlagInterface, true)
+	err = c.SetControlMessage(ipv4.FlagInterface, true)
 	if err != nil {
 		return nil, err
 	}
 
-	return &l4, nil
+	return &Listener{c: c}, nil
 }
 
-func (l *listener4) Serve() error {
-	ll.Infof("Listen %s", l.LocalAddr())
+func (l *Listener) Listen() error {
+	ll.Infof("Listen %s", l.c.LocalAddr())
 	for {
 		b := make([]byte, MaxDatagram)
-		n, oob, peer, err := l.ReadFrom(b)
+		n, oob, peer, err := l.c.ReadFrom(b)
 		if err != nil {
 			ll.Errorf("Error reading from connection: %v", err)
 			return err
 		}
-		go l.HandleMsg4(b[:n], oob, peer.(*net.UDPAddr))
+		go l.handleMsg(b[:n], oob, peer.(*net.UDPAddr))
 	}
 }
 
-func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.Addr) {
+func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Addr) {
 	ifi, err := net.InterfaceByIndex(oob.IfIndex)
 	if err != nil {
 		ll.Errorf("Error getting request interface: %v", err)
@@ -137,11 +133,7 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 
 	// find dynamic hostname if feature is enabled
 	if *flagDynHost {
-		h, d, err := getDynamicHostname(pickedIP)
-		if err == nil {
-			hostname = h
-			domainname = d
-		}
+		hostname = getDynamicHostname(pickedIP)
 	}
 
 	// static hostname in a file (if exists) will supersede the dynamic hostname
@@ -233,7 +225,7 @@ func (l *listener4) HandleMsg4(buf []byte, oob *ipv4.ControlMessage, _peer net.A
 	)
 	ll.Trace(resp.Summary())
 
-	if _, err := l.WriteTo(resp.ToBytes(), woob, peer); err != nil {
+	if _, err := l.c.WriteTo(resp.ToBytes(), woob, peer); err != nil {
 		ll.Warnf("Write to connection %v failed: %v", peer, err)
 	}
 }
