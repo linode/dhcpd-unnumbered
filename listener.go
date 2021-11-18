@@ -54,6 +54,7 @@ func (l *Listener) Listen() error {
 	}
 }
 
+// handleMsg is triggered every time there is a DHCP request coming in. this is the main deal handling the reply
 func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Addr) {
 	ifi, err := net.InterfaceByIndex(oob.IfIndex)
 	if err != nil {
