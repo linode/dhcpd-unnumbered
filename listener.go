@@ -166,6 +166,7 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptIPAddressLeaseTime(*flagLeaseTime)))
 	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptHostName(hostname)))
 	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptDomainName(domainname)))
+	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptServerIdentifier(gw)))
 
 	if *flagBootfile != "" {
 		mods = append(mods, dhcpv4.WithOption(dhcpv4.OptBootFileName(*flagBootfile)))
