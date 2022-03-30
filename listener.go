@@ -12,7 +12,8 @@ import (
 
 // Listener is the core struct
 type Listener struct {
-	c *ipv4.PacketConn
+	c   *ipv4.PacketConn
+	sIP net.IP
 }
 
 // NewListener creates a new instance of DHCP listener
@@ -37,7 +38,15 @@ func NewListener() (*Listener, error) {
 		return nil, err
 	}
 
-	return &Listener{c: c}, nil
+	return &Listener{
+		c: c,
+	}, nil
+}
+
+// SetSource sets the DHCP server IP and Identified in the offer
+func (l *Listener) SetSource(ip net.IP) {
+	l.sIP = ip
+	ll.Infof("Sending from %s", l.sIP)
 }
 
 // Listen starts listening for incoming DHCP requests
@@ -128,6 +137,12 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	// we actually don't care at all what the gw IP is, its really just to make the client's tcp/ip stack happy
 	gw := net.IPv4(pickedIP[0], pickedIP[1], pickedIP[2], 1)
 
+	// source IP to be sending from
+	sIP := l.sIP
+	if sIP == nil {
+		sIP = gw
+	}
+
 	// mix DNS but mix em consistently so same IP gets the same order
 	dns := mixDNS(pickedIP)
 
@@ -166,7 +181,7 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptIPAddressLeaseTime(*flagLeaseTime)))
 	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptHostName(hostname)))
 	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptDomainName(domainname)))
-	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptServerIdentifier(gw)))
+	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptServerIdentifier(sIP)))
 
 	if *flagBootfile != "" {
 		mods = append(mods, dhcpv4.WithOption(dhcpv4.OptBootFileName(*flagBootfile)))
@@ -218,7 +233,7 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	}
 
 	ll.Infof(
-		"%s to %s on %s with %s, lease %s, hostname %s.%s, dns %s",
+		"%s to %s on %s with %s, lease %s, hostname %s.%s",
 		resp.MessageType(),
 		peer.IP,
 		ifi.Name,
@@ -226,7 +241,6 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 		*flagLeaseTime,
 		hostname,
 		domainname,
-		dns,
 	)
 	ll.Trace(resp.Summary())
 

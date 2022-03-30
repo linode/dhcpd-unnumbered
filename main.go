@@ -108,11 +108,17 @@ func main() {
 	}
 	ll.Infof("using DNS %v", myDNS)
 
+	sIP, err := getSourceIP()
+	if err != nil {
+		ll.Fatalf("unable to get source IP to be used: %v", err)
+	}
+
 	// start server
 	s, err := NewListener()
 	if err != nil {
 		ll.Fatal(err)
 	}
+	s.SetSource(sIP)
 	if err := s.Listen(); err != nil {
 		ll.Fatalf("Unexpected server exit: %s", err)
 	}
