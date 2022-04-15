@@ -175,7 +175,6 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	//resp.GatewayIPAddr = gw
 	mods = append(mods, dhcpv4.WithYourIP(pickedIP))
 	mods = append(mods, dhcpv4.WithNetmask(net.CIDRMask(24, 32)))
-	mods = append(mods, dhcpv4.WithServerIP(gw))
 	mods = append(mods, dhcpv4.WithRouter(gw))
 	mods = append(mods, dhcpv4.WithDNS(dns...))
 	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptIPAddressLeaseTime(*flagLeaseTime)))
@@ -186,8 +185,9 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	if *flagBootfile != "" {
 		mods = append(mods, dhcpv4.WithOption(dhcpv4.OptBootFileName(*flagBootfile)))
 	}
-	if *flagTftpIP != "" {
-		mods = append(mods, dhcpv4.WithOption(dhcpv4.OptTFTPServerName(*flagTftpIP)))
+	if tftp != nil {
+		mods = append(mods, dhcpv4.WithServerIP(tftp))
+		//mods = append(mods, dhcpv4.WithOption(dhcpv4.OptTFTPServerName(*flagTftpIP)))  // this is Option 66
 	}
 
 	switch mt := req.MessageType(); mt {
@@ -233,7 +233,7 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	}
 
 	ll.Infof(
-		"%s to %s on %s with %s, lease %s, hostname %s.%s",
+		"%s to %s on %s with %s, lease %s, hostname %s.%s, tftp %s:%s",
 		resp.MessageType(),
 		peer.IP,
 		ifi.Name,
@@ -241,6 +241,8 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 		*flagLeaseTime,
 		hostname,
 		domainname,
+		tftp,
+		*flagBootfile,
 	)
 	ll.Trace(resp.Summary())
 
