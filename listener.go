@@ -81,12 +81,12 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	ll.Trace(req.Summary())
 
 	if !(regex.Match([]byte(ifi.Name))) {
-		ll.Warnf("DHCP request on Interface %v is not accepted, ignoring", ifi.Name)
+		ll.Debugf("DHCP request on Interface %v is not accepted, ignoring", ifi.Name)
 		return
 	}
 
 	if ifi.Flags&net.FlagUp != net.FlagUp {
-		ll.Warnf("DHCP request on a Interface %v, which is down. that's not right, skipping...", ifi.Name)
+		ll.Debugf("DHCP request on a Interface %v, which is down. that's not right, skipping...", ifi.Name)
 		return
 	}
 
@@ -247,6 +247,6 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	ll.Trace(resp.Summary())
 
 	if _, err := l.c.WriteTo(resp.ToBytes(), woob, peer); err != nil {
-		ll.Warnf("Write to connection %v failed: %v", peer, err)
+		ll.Errorf("Write to connection %v failed: %v", peer, err)
 	}
 }
