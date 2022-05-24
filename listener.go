@@ -12,7 +12,8 @@ import (
 
 // Listener is the core struct
 type Listener struct {
-	c *ipv4.PacketConn
+	c   *ipv4.PacketConn
+	sIP net.IP
 }
 
 // NewListener creates a new instance of DHCP listener
@@ -37,7 +38,15 @@ func NewListener() (*Listener, error) {
 		return nil, err
 	}
 
-	return &Listener{c: c}, nil
+	return &Listener{
+		c: c,
+	}, nil
+}
+
+// SetSource sets the DHCP server IP and Identified in the offer
+func (l *Listener) SetSource(ip net.IP) {
+	l.sIP = ip
+	ll.Infof("Sending from %s", l.sIP)
 }
 
 // Listen starts listening for incoming DHCP requests
@@ -72,12 +81,12 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	ll.Trace(req.Summary())
 
 	if !(regex.Match([]byte(ifi.Name))) {
-		ll.Warnf("DHCP request on Interface %v is not accepted, ignoring", ifi.Name)
+		ll.Debugf("DHCP request on Interface %v is not accepted, ignoring", ifi.Name)
 		return
 	}
 
 	if ifi.Flags&net.FlagUp != net.FlagUp {
-		ll.Warnf("DHCP request on a Interface %v, which is down. that's not right, skipping...", ifi.Name)
+		ll.Debugf("DHCP request on a Interface %v, which is down. that's not right, skipping...", ifi.Name)
 		return
 	}
 
@@ -128,6 +137,12 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	// we actually don't care at all what the gw IP is, its really just to make the client's tcp/ip stack happy
 	gw := net.IPv4(pickedIP[0], pickedIP[1], pickedIP[2], 1)
 
+	// source IP to be sending from
+	sIP := l.sIP
+	if sIP == nil {
+		sIP = gw
+	}
+
 	// mix DNS but mix em consistently so same IP gets the same order
 	dns := mixDNS(pickedIP)
 
@@ -160,19 +175,19 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	//resp.GatewayIPAddr = gw
 	mods = append(mods, dhcpv4.WithYourIP(pickedIP))
 	mods = append(mods, dhcpv4.WithNetmask(net.CIDRMask(24, 32)))
-	mods = append(mods, dhcpv4.WithServerIP(gw))
 	mods = append(mods, dhcpv4.WithRouter(gw))
 	mods = append(mods, dhcpv4.WithDNS(dns...))
 	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptIPAddressLeaseTime(*flagLeaseTime)))
 	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptHostName(hostname)))
 	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptDomainName(domainname)))
-	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptServerIdentifier(gw)))
+	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptServerIdentifier(sIP)))
 
 	if *flagBootfile != "" {
 		mods = append(mods, dhcpv4.WithOption(dhcpv4.OptBootFileName(*flagBootfile)))
 	}
-	if *flagTftpIP != "" {
-		mods = append(mods, dhcpv4.WithOption(dhcpv4.OptTFTPServerName(*flagTftpIP)))
+	if tftp != nil {
+		mods = append(mods, dhcpv4.WithServerIP(tftp))
+		//mods = append(mods, dhcpv4.WithOption(dhcpv4.OptTFTPServerName(*flagTftpIP)))  // this is Option 66
 	}
 
 	switch mt := req.MessageType(); mt {
@@ -218,7 +233,7 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	}
 
 	ll.Infof(
-		"%s to %s on %s with %s, lease %s, hostname %s.%s, dns %s",
+		"%s to %s on %s with %s, lease %s, hostname %s.%s, tftp %s:%s",
 		resp.MessageType(),
 		peer.IP,
 		ifi.Name,
@@ -226,11 +241,12 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 		*flagLeaseTime,
 		hostname,
 		domainname,
-		dns,
+		tftp,
+		*flagBootfile,
 	)
 	ll.Trace(resp.Summary())
 
 	if _, err := l.c.WriteTo(resp.ToBytes(), woob, peer); err != nil {
-		ll.Warnf("Write to connection %v failed: %v", peer, err)
+		ll.Errorf("Write to connection %v failed: %v", peer, err)
 	}
 }

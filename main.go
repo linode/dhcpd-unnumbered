@@ -20,6 +20,7 @@ var (
 	regex  *regexp.Regexp
 	pvtIPs *net.IPNet
 	myDNS  listIP
+	tftp   net.IP
 
 	flagLeaseTime = flag.Duration("leasetime", (30 * time.Minute), "DHCP lease time.")
 	flagTapRegex  = flag.String("regex", "tap.*_0", "regex to match interfaces.")
@@ -46,7 +47,6 @@ var (
 	)
 	flagDomainname = flag.String("domainname", "localdomain", "domainname to be handed out in dhcp offeres")
 	flagBootfile   = flag.String("bootfile", "", "boot file to offer in DHCP replies")
-	flagTftpIP     = flag.String("tftp", "", "tftp srv to offer in DHCP replies")
 
 	logLevels = map[string]func(){
 		"none":    func() { ll.SetOutput(ioutil.Discard) },
@@ -61,6 +61,7 @@ var (
 
 func main() {
 	flagLogLevel := flag.String("loglevel", "info", fmt.Sprintf("Log level. One of %v", getLogLevels()))
+	flagTftpIP := flag.String("tftp", "", "tftp srv to offer in DHCP replies")
 	flag.Var(&myDNS, "dns", "dns server to use in DHCP offer, option can be used multiple times for more than 1 server")
 	flag.Parse()
 
@@ -90,8 +91,12 @@ func main() {
 	if err != nil {
 		ll.Fatalf("unable to parse interface regex: %v", err)
 	}
-
 	ll.Infof("Handling Interfaces matching '%s'", regex.String())
+
+	tftp = net.ParseIP(*flagTftpIP)
+	if tftp != nil {
+		ll.Infof("using %s as tftp", tftp)
+	}
 
 	_, pvtIPs, err = net.ParseCIDR(*flagPvtIPs)
 	if err != nil {
@@ -108,11 +113,17 @@ func main() {
 	}
 	ll.Infof("using DNS %v", myDNS)
 
+	sIP, err := getSourceIP()
+	if err != nil {
+		ll.Fatalf("unable to get source IP to be used: %v", err)
+	}
+
 	// start server
 	s, err := NewListener()
 	if err != nil {
 		ll.Fatal(err)
 	}
+	s.SetSource(sIP)
 	if err := s.Listen(); err != nil {
 		ll.Fatalf("Unexpected server exit: %s", err)
 	}

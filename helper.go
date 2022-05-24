@@ -9,6 +9,39 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
+func getSourceIP() (net.IP, error) {
+	lo, err := net.InterfaceByName("lo")
+	if err != nil {
+		return nil, err
+	}
+	loAddrs, err := lo.Addrs()
+	if err != nil {
+		return nil, err
+	}
+	var sIP net.IP
+	for _, addr := range loAddrs {
+		switch v := addr.(type) {
+		case *net.IPNet:
+			sIP = v.IP
+		case *net.IPAddr:
+			sIP = v.IP
+		default:
+			continue
+		}
+
+		if sIP.IsLoopback() || sIP.IsLinkLocalUnicast() || sIP.To4() == nil {
+			continue
+		}
+		break
+	}
+
+	if sIP.To4() != nil {
+		return sIP, nil
+	}
+
+	return nil, nil
+}
+
 // getDynamicHostname will generate hostname from IP and predefined domainname
 func getDynamicHostname(ip net.IP) string {
 	return strings.ReplaceAll(ip.String(), ".", "-")
