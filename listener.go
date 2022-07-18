@@ -207,29 +207,27 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	}
 
 	var peer *net.UDPAddr
+	var peerMAC *net.HardwareAddr
 	//only needed if we wanna support dhcp relay, we don't need that
 	//if !req.GatewayIPAddr.IsUnspecified() {
-	//	// TODO: make RFC8357 compliant
+	//	TODO: make RFC8357 compliant
 	//	peer = &net.UDPAddr{IP: req.GatewayIPAddr, Port: dhcpv4.ServerPort}
 	if resp.MessageType() == dhcpv4.MessageTypeNak {
 		peer = &net.UDPAddr{IP: net.IPv4bcast, Port: dhcpv4.ClientPort}
+		peerMAC = &net.HardwareAddr{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 	} else if !req.ClientIPAddr.IsUnspecified() {
 		peer = &net.UDPAddr{IP: req.ClientIPAddr, Port: dhcpv4.ClientPort}
-	} else if req.IsBroadcast() {
+		peerMAC = &req.ClientHWAddr
+	} else if req.IsBroadcast() && req.Flags == 1 {
 		peer = &net.UDPAddr{IP: net.IPv4bcast, Port: dhcpv4.ClientPort}
+		peerMAC = &net.HardwareAddr{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+	} else if req.Flags == 0 {
+		peer = &net.UDPAddr{IP: pickedIP, Port: dhcpv4.ClientPort}
+		peerMAC = &req.ClientHWAddr
 	} else {
-		// FIXME: we're supposed to unicast to a specific *L2* address, and an L3
-		// address that's not yet assigned.
-		// I don't know how to do that with this API...
-		//peer = &net.UDPAddr{IP: resp.YourIPAddr, Port: dhcpv4.ClientPort}
 		ll.Traceln("Cannot handle non-broadcast-capable unspecified peers in an RFC-compliant way. Response will be broadcast")
 		peer = &net.UDPAddr{IP: net.IPv4bcast, Port: dhcpv4.ClientPort}
-	}
-
-	woob := &ipv4.ControlMessage{
-		IfIndex: oob.IfIndex,
-		//would be nice to set a public source IP but using simple packetConn I can only set a configured ip on the interface, which we have none, so letting the kernel pick
-		//Src:     net.IPv4bcast,
+		peerMAC = &net.HardwareAddr{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 	}
 
 	ll.Infof(
@@ -246,7 +244,7 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	)
 	ll.Trace(resp.Summary())
 
-	if _, err := l.c.WriteTo(resp.ToBytes(), woob, peer); err != nil {
+	if err := sendPacket(peer, *peerMAC, *ifi, resp); err != nil {
 		ll.Errorf("Write to connection %v failed: %v", peer, err)
 	}
 }
