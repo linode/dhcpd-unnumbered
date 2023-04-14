@@ -173,6 +173,7 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	//mods = append(mods, dhcpv4.WithBroadCast(false))
 	//this should not be needed. only for dhcp relay which we don't use/do. needs to be tested
 	//resp.GatewayIPAddr = gw
+	mods = append(mods, dhcpv4.WithServerIP(gw))
 	mods = append(mods, dhcpv4.WithYourIP(pickedIP))
 	mods = append(mods, dhcpv4.WithNetmask(net.CIDRMask(24, 32)))
 	mods = append(mods, dhcpv4.WithRouter(gw))
@@ -186,8 +187,7 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 		mods = append(mods, dhcpv4.WithOption(dhcpv4.OptBootFileName(*flagBootfile)))
 	}
 	if tftp != nil {
-		mods = append(mods, dhcpv4.WithServerIP(tftp))
-		//mods = append(mods, dhcpv4.WithOption(dhcpv4.OptTFTPServerName(*flagTftpIP)))  // this is Option 66
+		mods = append(mods, dhcpv4.WithOption(dhcpv4.OptTFTPServerName(tftp.String()))) // this is Option 66
 	}
 
 	switch mt := req.MessageType(); mt {
