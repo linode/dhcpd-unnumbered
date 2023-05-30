@@ -11,6 +11,9 @@ dhcpd-unnumbered is a very light weight ipv4 dhcp server designed for unnumbered
 	- routes for that tap are looked up,
 	- if client requested a specific IP *and* still owns this IP, that IP is offered
 	- if client did not request an IP (aka DHCP discover) the first *non-private* IP is being offered
+    - some options can also be specified via a file (`<ifname>.options`)
+
+In addition to listening on all interfaces, it can also dynamically bind a socket on each interface matching a regex (`bindRegex`). This allows listening on interfaces in other L3 master domains (e.g. VRFs).
 
 ### NOTES:
 - dhcp offers will supply a fake /24, clients are let to believe that they live in a shared /24 subnet
@@ -21,7 +24,7 @@ dhcpd-unnumbered is a very light weight ipv4 dhcp server designed for unnumbered
   - dynamic hostname: hostname is generated from its IP, with the dots replaced with -
   - hostname override: dhcpd-unnumbered can dynamically pick up a file reading the hostname from it. completely customized hostnames can be offered through this
 - dhcpd-unnumbered can also offer a tftp next-host IP for pxebooting clients
-
+- Options in a `.options` file take precedence over command line and inferred settings. See `options/options.go`.
 
 ### usage:
 ```

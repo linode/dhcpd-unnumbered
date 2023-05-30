@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path"
 	"strings"
 
+	"github.com/linode/dhcpd-unnumbered/options"
+	ll "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 )
 
@@ -58,6 +61,13 @@ func getHostnameOverride(ifName string) (string, string, error) {
 		return s[0], s[1], nil
 	}
 	return s[0], "", nil
+}
+
+// getHostnameOverride returns override options read from a static file based on
+// path+ifName.options
+func getOptionsOverride(log *ll.Entry, ifName string) (*options.DHCP, error) {
+	fullpath := path.Join(*flagHostnamePath, ifName+".options")
+	return options.Load(log, fullpath)
 }
 
 // mixDNS sorts dns servers in a sudo-random way (the provided IP should always get back the same sequence of DNS)
