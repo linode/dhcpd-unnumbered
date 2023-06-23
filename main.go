@@ -26,7 +26,7 @@ var (
 
 	flagLeaseTime = flag.Duration("leasetime", (30 * time.Minute), "DHCP lease time.")
 	flagTapRegex  = flag.String("regex", "tap.*_0", "regex to match interfaces.")
-	flagBindRegex = flag.String("bind", "", "additionally bind interfaces matching regex.")
+	flagVrfRegex  = flag.String("bind", "", "additionally bind VRF interfaces matching regex.")
 	flagPvtIPs    = flag.String(
 		"pvtcidr",
 		"192.168.0.0/16",
@@ -137,9 +137,9 @@ func main() {
 	}()
 
 	// Dynamically bind interfaces matching flagBindRegex if set
-	if *flagBindRegex != "" {
-		ll.Infof("Will also bind interfaces matching %s", *flagBindRegex)
-		regex := regexp.MustCompile(*flagBindRegex)
+	if *flagVrfRegex != "" {
+		ll.Infof("Will also bind VRFs matching %s", *flagVrfRegex)
+		regex := regexp.MustCompile(*flagVrfRegex)
 		linkch := make(chan monitor.Event, 5)
 		mon := monitor.NewNetlinkMonitor(linkch, regex)
 

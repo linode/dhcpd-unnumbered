@@ -16,14 +16,27 @@ type Listener struct {
 	c   *ipv4.PacketConn
 	sIP net.IP
 	log *ll.Entry
+
+	// Table if this is a VRF, otherwise zero
+	vrfTable int
 }
 
-// NewListener creates a new instance of DHCP listener
+// NewListener creates a new instance of DHCP listener. If intf is a concrete
+// interface, it must be a VRF.
 func NewListener(intf string) (*Listener, error) {
 	s := net.UDPAddr{
 		IP:   net.IPv4zero,
 		Port: 67,
 		Zone: intf,
+	}
+
+	vrfTable := 0
+	if intf != "" {
+		var err error
+		vrfTable, err = getVRFTableIdx(intf)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	udpConn, err := server4.NewIPv4UDPConn(s.Zone, &s)
@@ -41,14 +54,16 @@ func NewListener(intf string) (*Listener, error) {
 	}
 
 	// Create a sub logger that attaches the interface to each message
-	if intf == "" {
-		intf = "NONE"
+	logIntf := intf
+	if logIntf == "" {
+		logIntf = "NONE"
 	}
-	log := ll.NewEntry(ll.StandardLogger()).WithFields(ll.Fields{"interface": intf})
+	log := ll.NewEntry(ll.StandardLogger()).WithFields(ll.Fields{"interface": logIntf})
 
 	return &Listener{
-		c:   c,
-		log: log,
+		c:        c,
+		log:      log,
+		vrfTable: vrfTable,
 	}, nil
 }
 
@@ -65,6 +80,8 @@ func (l *Listener) Listen() error {
 		b := make([]byte, MaxDatagram)
 		n, oob, peer, err := l.c.ReadFrom(b)
 		if err != nil {
+			// NOTE: this error will also be logged if the socket is closed when
+			// the VRF disappears (which is expected).
 			l.log.Errorf("Error reading from connection: %v", err)
 			return err
 		}
@@ -129,7 +146,17 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	}
 
 	if len(options.IPv4) == 0 {
-		rts, err := getHostRoutesIpv4(ifi.Name)
+		var rts []*net.IPNet
+		var err error
+		if l.vrfTable == 0 {
+			l.log.Debug("Now reading tap routes")
+			// Routes on the TAP we received the request on
+			rts, err = getHostRoutesIpv4(ifi.Name)
+		} else {
+			// Routes on the interface we listen on for the TAP we received on
+			l.log.Debug("Now reading vrf routes")
+			rts, err = getTableRoutes(oob.IfIndex, l.vrfTable)
+		}
 		if err != nil {
 			l.log.Errorf("failed to get routes for Interface %v: %v", ifi.Name, err)
 			return

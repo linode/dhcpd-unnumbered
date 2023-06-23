@@ -15,9 +15,6 @@ import (
 // settings. If a setting in this file is missing or empty, it count as not
 // set. Likewise if it cannot be parsed (this will result in a warning being
 // logged).
-// TODO(lbrockna): This is more user friendly than dealing with net.IPs in JSON,
-// but adds perhaps unnecessary complexity unless the file is ever written by hand?
-// Also see https://github.com/golang/go/issues/35727 about serializing IPs.
 type dhcpJSON struct {
 	IPv4       []string
 	Hostname   string
@@ -45,8 +42,9 @@ type DHCP struct {
 func Load(log *ll.Entry, filepath string) (*DHCP, error) {
 	fh, err := os.Open(filepath)
 	if err != nil {
-		// A missing file is expected so this isn't considered an error.
-		ll.Infof("Failed to open options file %s", filepath)
+		// A missing file is expected so this isn't considered an
+		// error. Filename is contained in the error we receive.
+		ll.Infof("Failed to open options file: %v", err)
 		return &DHCP{}, nil
 	}
 	defer fh.Close()

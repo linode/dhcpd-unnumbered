@@ -72,8 +72,7 @@ func (nm *NetlinkMonitor) Listen() error {
 	var processLink = func(link netlink.Link) {
 		ctr++
 		attrs := link.Attrs()
-		// TODO(lbrockna) rad-unnumbered checks for htis, but can it
-		// happen?
+
 		if attrs == nil {
 			nm.log.Warnf("No attrs for interface type=%s", link.Type())
 			return
@@ -143,8 +142,10 @@ func (nm *NetlinkMonitor) Listen() error {
 	}
 }
 
-// TODO(lbrockna) figure out if this is relevant and a good solution for
-// DHCP. If this is set to false, tests need to be updated.
+// If this is set to false, we won't consider an interface up until we see
+// traffic. This is to avoid binding the interface until it's truly "up". From
+// my testing it doesn't seem necessary and I'd be concerned we might ignore
+// valid interfaces. If this is set to false, tests need to be updated.
 const ignoreTraffic = true
 
 // linkReady returns true if the link is up, using the same strategy as
