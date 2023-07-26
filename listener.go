@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net"
 
 	"github.com/insomniacslk/dhcp/dhcpv4"
@@ -9,7 +10,12 @@ import (
 
 	ll "github.com/sirupsen/logrus"
 	"golang.org/x/net/ipv4"
+	"golang.org/x/sys/unix"
 )
+
+// This is returned if NewListener is called with a specified interface, that's
+// not a VRF.
+var ErrNotVRF = errors.New("Not a VRF interface")
 
 // Listener is the core struct
 type Listener struct {
@@ -17,8 +23,8 @@ type Listener struct {
 	sIP net.IP
 	log *ll.Entry
 
-	// Table if this is a VRF, otherwise zero
-	vrfTable int
+	// Table of the VRF, otherwise the main table
+	routeTable int
 }
 
 // NewListener creates a new instance of DHCP listener. If intf is a concrete
@@ -30,7 +36,9 @@ func NewListener(intf string) (*Listener, error) {
 		Zone: intf,
 	}
 
-	vrfTable := 0
+	// The default is the main table
+	vrfTable := unix.RT_TABLE_MAIN
+
 	if intf != "" {
 		var err error
 		vrfTable, err = getVRFTableIdx(intf)
@@ -61,9 +69,9 @@ func NewListener(intf string) (*Listener, error) {
 	log := ll.NewEntry(ll.StandardLogger()).WithFields(ll.Fields{"interface": logIntf})
 
 	return &Listener{
-		c:        c,
-		log:      log,
-		vrfTable: vrfTable,
+		c:          c,
+		log:        log,
+		routeTable: vrfTable,
 	}, nil
 }
 
@@ -82,7 +90,7 @@ func (l *Listener) Listen() error {
 		if err != nil {
 			// NOTE: this error will also be logged if the socket is closed when
 			// the VRF disappears (which is expected).
-			l.log.Errorf("Error reading from connection: %v", err)
+			l.log.Errorf("Error reading from connection: %v (this error is expected if a VRF was torn down)", err)
 			return err
 		}
 		go l.handleMsg(b[:n], oob, peer.(*net.UDPAddr))
@@ -146,19 +154,11 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	}
 
 	if len(options.IPv4) == 0 {
-		var rts []*net.IPNet
-		var err error
-		if l.vrfTable == 0 {
-			l.log.Debug("Now reading tap routes")
-			// Routes on the TAP we received the request on
-			rts, err = getHostRoutesIpv4(ifi.Name)
-		} else {
-			// Routes on the interface we listen on for the TAP we received on
-			l.log.Debug("Now reading vrf routes")
-			rts, err = getTableRoutes(oob.IfIndex, l.vrfTable)
-		}
+		l.log.Debugf("Now reading routes from table %d", l.routeTable)
+		rts, err := getTableRoutes(oob.IfIndex, l.routeTable)
+
 		if err != nil {
-			l.log.Errorf("failed to get routes for Interface %v: %v", ifi.Name, err)
+			l.log.Errorf("failed to get routes for Interface %v from table %d: %v", ifi.Name, l.routeTable, err)
 			return
 		}
 

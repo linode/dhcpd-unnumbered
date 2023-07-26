@@ -13,7 +13,7 @@ dhcpd-unnumbered is a very light weight ipv4 dhcp server designed for unnumbered
 	- if client did not request an IP (aka DHCP discover) the first *non-private* IP is being offered
     - some options can also be specified via a file (`<ifname>.options`)
 
-In addition to listening on all interfaces, it can also dynamically bind a socket on each interface matching a regex (`bindRegex`). This allows listening on interfaces in other L3 master domains (e.g. VRFs).
+In addition to listening on all interfaces, it can also dynamically bind a socket in each VRF matching a regex (`bindRegex`). These sockets will be created and torn down as the interfaces come and go.
 
 ### NOTES:
 - dhcp offers will supply a fake /24, clients are let to believe that they live in a shared /24 subnet

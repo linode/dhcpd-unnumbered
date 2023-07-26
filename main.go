@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -168,7 +169,16 @@ func main() {
 				case monitor.LinkUp:
 					s, err := NewListener(event.Interface)
 					if err != nil {
-						ll.Fatal(err)
+						if errors.Is(err, ErrNotVRF) {
+							// Just in case the regex matches an interface
+							// that's not a VRF, handle it gracefully.
+							ll.Infof("Won't bind %s as it's not a VRF", event.Interface)
+						} else {
+							ll.Warningf("Failed to bind %s: %v", event.Interface, err)
+						}
+						// Add a sentinel to avoid warning when the interface disappears
+						listeners[event.Interface] = nil
+						continue
 					}
 					s.SetSource(sIP)
 					listeners[event.Interface] = s
@@ -181,7 +191,9 @@ func main() {
 						continue
 					}
 					delete(listeners, event.Interface)
-					s.Close()
+					if s != nil {
+						s.Close()
+					}
 				}
 			}
 			mon.Close()

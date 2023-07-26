@@ -115,32 +115,6 @@ func getLogLevels() []string {
 	return levels
 }
 
-func getHostRoutesIpv4(ifName string) ([]*net.IPNet, error) {
-	nlh, err := netlink.NewHandle()
-	defer nlh.Delete()
-	if err != nil {
-		return nil, fmt.Errorf("unable to hook into netlink: %v", err)
-	}
-
-	link, err := netlink.LinkByName(ifName)
-	if err != nil {
-		return nil, fmt.Errorf("unable to get link info: %v", err)
-	}
-
-	ro, err := nlh.RouteList(link, unix.AF_INET)
-	if err != nil {
-		return nil, fmt.Errorf("unable to get routes: %v", err)
-	}
-	var r []*net.IPNet
-	for _, d := range ro {
-		m, l := d.Dst.Mask.Size()
-		if m == 32 && l == 32 {
-			r = append(r, d.Dst)
-		}
-	}
-	return r, nil
-}
-
 // Returns the table id of VRF `ifName`, or an error if ifName is not a VRF.
 func getVRFTableIdx(ifName string) (int, error) {
 	nlh, err := netlink.NewHandle()
@@ -157,7 +131,7 @@ func getVRFTableIdx(ifName string) (int, error) {
 	// We need a type assertion to access the Table ID
 	vrf, ok := link.(*netlink.Vrf)
 	if !ok {
-		return 0, fmt.Errorf("%s is not a vrf", ifName)
+		return 0, ErrNotVRF
 	}
 
 	return int(vrf.Table), nil

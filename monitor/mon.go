@@ -142,19 +142,11 @@ func (nm *NetlinkMonitor) Listen() error {
 	}
 }
 
-// If this is set to false, we won't consider an interface up until we see
-// traffic. This is to avoid binding the interface until it's truly "up". From
-// my testing it doesn't seem necessary and I'd be concerned we might ignore
-// valid interfaces. If this is set to false, tests need to be updated.
-const ignoreTraffic = true
-
 // linkReady returns true if the link is up, using the same strategy as
-// rad-unnumbered.
+// rad-unnumbered (except for not waiting until traffic flows).
 func linkReady(l *netlink.LinkAttrs) bool {
 	if l.OperState == netlink.OperUp && l.Flags&net.FlagUp == net.FlagUp {
-		if ignoreTraffic || (l.Statistics != nil && l.Statistics.TxPackets > 0) {
-			return true
-		}
+		return true
 	}
 	return false
 }
