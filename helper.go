@@ -4,9 +4,13 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path"
 	"strings"
 
+	"github.com/linode/dhcpd-unnumbered/options"
+	ll "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
+	"golang.org/x/sys/unix"
 )
 
 func getSourceIP() (net.IP, error) {
@@ -60,6 +64,13 @@ func getHostnameOverride(ifName string) (string, string, error) {
 	return s[0], "", nil
 }
 
+// getHostnameOverride returns override options read from a static file based on
+// path+ifName.options
+func getOptionsOverride(log *ll.Entry, ifName string) (*options.DHCP, error) {
+	fullpath := path.Join(*flagHostnamePath, ifName+".options")
+	return options.Load(log, fullpath)
+}
+
 // mixDNS sorts dns servers in a sudo-random way (the provided IP should always get back the same sequence of DNS)
 func mixDNS(ip net.IP) []net.IP {
 	l := len(myDNS)
@@ -104,24 +115,51 @@ func getLogLevels() []string {
 	return levels
 }
 
-func getHostRoutesIpv4(ifName string) ([]*net.IPNet, error) {
+// Returns the table id of VRF `ifName`, or an error if ifName is not a VRF.
+func getVRFTableIdx(ifName string) (int, error) {
+	nlh, err := netlink.NewHandle()
+	defer nlh.Delete()
+	if err != nil {
+		return 0, fmt.Errorf("unable to hook into netlink: %v", err)
+	}
+
+	link, err := netlink.LinkByName(ifName)
+	if err != nil {
+		return 0, fmt.Errorf("unable to get link info: %v", err)
+	}
+
+	// We need a type assertion to access the Table ID
+	vrf, ok := link.(*netlink.Vrf)
+	if !ok {
+		return 0, ErrNotVRF
+	}
+
+	return int(vrf.Table), nil
+}
+
+// Returns routes for the given interface in the given table.
+func getTableRoutes(ifidx int, table int) ([]*net.IPNet, error) {
 	nlh, err := netlink.NewHandle()
 	defer nlh.Delete()
 	if err != nil {
 		return nil, fmt.Errorf("unable to hook into netlink: %v", err)
 	}
 
-	link, err := netlink.LinkByName(ifName)
-	if err != nil {
-		return nil, fmt.Errorf("unable to get link info: %v", err)
+	routeFilter := &netlink.Route{
+		Table: table,
 	}
 
-	ro, err := nlh.RouteList(link, 4)
+	ro, err := nlh.RouteListFiltered(unix.AF_INET, routeFilter, netlink.RT_FILTER_TABLE)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get routes: %v", err)
 	}
 	var r []*net.IPNet
 	for _, d := range ro {
+		ll.Debug("Route ", d.String())
+		if d.LinkIndex != ifidx || d.Dst == nil {
+			continue
+		}
+
 		m, l := d.Dst.Mask.Size()
 		if m == 32 && l == 32 {
 			r = append(r, d.Dst)
