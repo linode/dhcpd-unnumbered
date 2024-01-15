@@ -163,7 +163,12 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 		}
 
 		for _, ip := range rts {
-			options.IPv4 = append(options.IPv4, ip.IP)
+			// Range is implicitly /24.
+			ipn := net.IPNet{
+				IP:   ip.IP,
+				Mask: net.CIDRMask(24, 32),
+			}
+			options.IPv4 = append(options.IPv4, &ipn)
 		}
 	}
 	l.log.Debugf("Routes found for Interface %v: %v", ifi.Name, options.IPv4)
@@ -176,24 +181,24 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 
 	// by default set the first IP in our return slice of routes
 	pickedIP := options.IPv4[0]
-	for _, ip := range options.IPv4 {
+	for _, ipr := range options.IPv4 {
 		// however, check if the client requests a specific IP *and* still owns it, if so let 'em have it, even if private
-		if req.RequestedIPAddress().Equal(ip) {
+		if req.RequestedIPAddress().Equal(ipr.IP) {
 			l.log.Debugf("client requested IP: %v and still owns it. so sticking to that one", req.RequestedIPAddress())
-			pickedIP = req.RequestedIPAddress()
+			pickedIP = ipr
 			break
 		}
-		if req.ClientIPAddr.Equal(ip) {
+		if req.ClientIPAddr.Equal(ipr.IP) {
 			l.log.Debugf("client used IP: %v and still owns it. so sticking to that one", req.ClientIPAddr)
-			pickedIP = req.ClientIPAddr
+			pickedIP = ipr
 			break
 		}
 
 		// if first IP in rts slice is a privete IP, override it with this one.
 		// doing this way will allow the last private IP to stick anyway in case there is no public IP assigned to a VM
-		if options.PvtIPs.Contains(pickedIP) {
-			l.log.Debugf("first IP was private, overriding with %v for now", ip)
-			pickedIP = ip
+		if options.PvtIPs.Contains(pickedIP.IP) {
+			l.log.Debugf("first IP was private, overriding with %v for now", ipr)
+			pickedIP = ipr
 		}
 	}
 
@@ -202,7 +207,7 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	// the default gateway handed out by DHCP is the .1 of whatever /24 subnet the client gets handed out.
 	// we actually don't care at all what the gw IP is, its really just to make the client's tcp/ip stack happy
 	if options.Gateway == nil {
-		gw := net.IPv4(pickedIP[0], pickedIP[1], pickedIP[2], 1)
+		gw := net.IPv4(pickedIP.IP[0], pickedIP.IP[1], pickedIP.IP[2], 1)
 		options.Gateway = &gw
 	}
 
@@ -213,7 +218,7 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	}
 
 	// mix DNS but mix em consistently so same IP gets the same order
-	dns := mixDNS(pickedIP)
+	dns := mixDNS(pickedIP.IP)
 
 	// should I generate a dynamic hostname?
 	hostname := *flagHostname
@@ -221,7 +226,7 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 
 	// find dynamic hostname if feature is enabled
 	if *flagDynHost {
-		hostname = getDynamicHostname(pickedIP)
+		hostname = getDynamicHostname(pickedIP.IP)
 	}
 
 	// static hostname in a file (if exists) will supersede the dynamic hostname
@@ -252,8 +257,8 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	//this should not be needed. only for dhcp relay which we don't use/do. needs to be tested
 	//resp.GatewayIPAddr = gw
 	mods = append(mods, dhcpv4.WithServerIP(*options.Gateway))
-	mods = append(mods, dhcpv4.WithYourIP(pickedIP))
-	mods = append(mods, dhcpv4.WithNetmask(net.CIDRMask(24, 32)))
+	mods = append(mods, dhcpv4.WithYourIP(pickedIP.IP))
+	mods = append(mods, dhcpv4.WithNetmask(pickedIP.Mask))
 	mods = append(mods, dhcpv4.WithRouter(*options.Gateway))
 	mods = append(mods, dhcpv4.WithDNS(dns...))
 	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptIPAddressLeaseTime(*flagLeaseTime)))
@@ -270,7 +275,7 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	}
 
 	if options.Tftp != nil {
-		mods = append(mods, dhcpv4.WithOption(dhcpv4.OptTFTPServerName(tftp.String()))) // this is Option 66
+		mods = append(mods, dhcpv4.WithOption(dhcpv4.OptTFTPServerName(options.Tftp.String()))) // this is Option 66
 	}
 
 	switch mt := req.MessageType(); mt {
@@ -305,7 +310,7 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 		peer = &net.UDPAddr{IP: net.IPv4bcast, Port: dhcpv4.ClientPort}
 		peerMAC = &net.HardwareAddr{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 	} else if req.Flags == 0 {
-		peer = &net.UDPAddr{IP: pickedIP, Port: dhcpv4.ClientPort}
+		peer = &net.UDPAddr{IP: pickedIP.IP, Port: dhcpv4.ClientPort}
 		peerMAC = &req.ClientHWAddr
 	} else {
 		ll.Traceln("Cannot handle non-broadcast-capable unspecified peers in an RFC-compliant way. Response will be broadcast")
@@ -314,15 +319,16 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	}
 
 	ll.Infof(
-		"%s to %s on %s with %s, lease %s, hostname %s.%s, tftp %s:%s",
+		"%s to %s on %s with %v, lease %s, hostname %s.%s, tftp %s:%s",
 		resp.MessageType(),
 		peer.IP,
 		ifi.Name,
 		pickedIP,
 		*flagLeaseTime,
-		hostname,
-		domainname,
-		tftp,
+		*options.Hostname,
+		*options.Domainname,
+		// This can be nil, so let the logger deference
+		options.Tftp,
 		*flagBootfile,
 	)
 	ll.Trace(resp.Summary())
