@@ -204,11 +204,11 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 
 	l.log.Debugf("Picked IP: %v", pickedIP)
 
-	// the default gateway handed out by DHCP is the .1 of whatever /24 subnet the client gets handed out.
+	// the default gateway handed out by DHCP is the first IP of whatever subnet the client gets handed out.
 	// we actually don't care at all what the gw IP is, its really just to make the client's tcp/ip stack happy
 	if options.Gateway == nil {
-		gw := net.IPv4(pickedIP.IP[0], pickedIP.IP[1], pickedIP.IP[2], 1)
-		options.Gateway = &gw
+		gw := gatewayFromIP(pickedIP)
+		options.Gateway = gw
 	}
 
 	// source IP to be sending from
