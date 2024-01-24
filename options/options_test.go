@@ -57,10 +57,6 @@ func TestParseIP(t *testing.T) {
 	_, err := parseIP(log, "blah")
 	assert.NotEqual(t, err, nil)
 
-	// Invalid prefix
-	_, err = parseIP(log, "1.2.3.4/4444")
-	assert.NotNil(t, err)
-
 	// IP, /24 implicit
 	ipnet, err := parseIP(log, "192.168.100.1")
 	assert.Nil(t, err)
@@ -70,4 +66,28 @@ func TestParseIP(t *testing.T) {
 	ipnet, err = parseIP(log, "10.53.1.2/25")
 	assert.Nil(t, err)
 	assert.Equal(t, ipnet.String(), "10.53.1.2/25")
+
+	ipnet, err = parseIP(log, "10.53.1.2/29")
+	assert.Nil(t, err)
+	assert.Equal(t, ipnet.String(), "10.53.1.2/29")
+
+	// Prefixes that are technically valid, but not usable
+	ipnet, err = parseIP(log, "10.53.1.2/30")
+	if assert.Error(t, err) {
+		assert.Contains(t, err.Error(), "has an unusable prefix")
+	}
+
+	ipnet, err = parseIP(log, "10.53.1.2/32")
+	if assert.Error(t, err) {
+		assert.Contains(t, err.Error(), "has an unusable prefix")
+	}
+
+	// Invalid prefixes
+	_, err = parseIP(log, "1.2.3.4/4444")
+	assert.NotNil(t, err)
+
+	ipnet, err = parseIP(log, "10.53.1.2/33")
+	if assert.Error(t, err) {
+		assert.Contains(t, err.Error(), "failed to parse")
+	}
 }

@@ -63,6 +63,13 @@ func parseIP(log *ll.Entry, ipstr string) (*net.IPNet, error) {
 	// Parse as CIDR
 	ip, ipnet, err := net.ParseCIDR(ipstr)
 	if err == nil {
+		// Reject prefixes > 29 as they're nonsensical and we cannot derive a
+		// gateway IP from them.
+		ones, _ := ipnet.Mask.Size()
+		if ones > 29 {
+			return nil, fmt.Errorf("%s has an unusable prefix of %d", ipstr, ones)
+		}
+
 		log.Infof("Parsed successfully as CIDR: %s", ipstr)
 		// Use IPNet to store the actual IP and netmask
 		ret := net.IPNet{
