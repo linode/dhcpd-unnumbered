@@ -16,17 +16,18 @@ import (
 // set. Likewise if it cannot be parsed (this will result in a warning being
 // logged).
 type dhcpJSON struct {
-	IPv4       []string
+	IPv4       []string // Address/Prefix. If not specified, Prefix is implicitly /24
 	Hostname   string
 	Domainname string
-	Gateway    string
-	PvtIPs     string // Must be CIDR
+	Gateway    string // Address
+	PvtIPs     string // Address/Prefix
 	Tftp       string
 }
 
 // This struct represents the parsed DHCP options as used internally.
 type DHCP struct {
-	IPv4 []net.IP
+	// If empty, these aren't set
+	IPv4 []*net.IPNet
 
 	// If nil, these aren't set.
 	Hostname   *string
@@ -57,6 +58,40 @@ func Load(log *ll.Entry, filepath string) (*DHCP, error) {
 	return parse(log, bytes)
 }
 
+// Parse a string as a CIDR or as an IP with implicit /24 prefix.
+func parseIP(log *ll.Entry, ipstr string) (*net.IPNet, error) {
+	// Parse as CIDR
+	ip, ipnet, err := net.ParseCIDR(ipstr)
+	if err == nil {
+		// Reject prefixes > 29 as they're nonsensical and we cannot derive a
+		// gateway IP from them.
+		ones, _ := ipnet.Mask.Size()
+		if ones > 29 {
+			return nil, fmt.Errorf("%s has an unusable prefix of %d", ipstr, ones)
+		}
+
+		log.Infof("Parsed successfully as CIDR: %s", ipstr)
+		// Use IPNet to store the actual IP and netmask
+		ret := net.IPNet{
+			IP:   ip,
+			Mask: ipnet.Mask,
+		}
+		return &ret, nil
+	}
+
+	// Fall back to parsing as IP
+	ip = net.ParseIP(ipstr)
+	if ip == nil {
+		return nil, fmt.Errorf("failed to parse %s as IP", ipstr)
+	}
+
+	ret := net.IPNet{
+		IP:   ip,
+		Mask: net.CIDRMask(24, 32),
+	}
+	return &ret, nil
+}
+
 func parse(log *ll.Entry, bytes []byte) (*DHCP, error) {
 	options := &DHCP{}
 	var onDisk dhcpJSON
@@ -66,12 +101,12 @@ func parse(log *ll.Entry, bytes []byte) (*DHCP, error) {
 	}
 
 	for _, ipstr := range onDisk.IPv4 {
-		ip := net.ParseIP(ipstr)
-		if ip == nil {
-			ll.Warnf("Failed to parse IP=%s, it will be ignored", ipstr)
-			continue
+		ipnet, err := parseIP(log, ipstr)
+		if err == nil {
+			options.IPv4 = append(options.IPv4, ipnet)
+		} else {
+			log.Warnf("Failed to parse IP=%s, it will be ignored: %v", ipstr, err)
 		}
-		options.IPv4 = append(options.IPv4, ip)
 	}
 
 	if onDisk.Hostname != "" {

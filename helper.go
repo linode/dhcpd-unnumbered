@@ -167,3 +167,12 @@ func getTableRoutes(ifidx int, table int) ([]*net.IPNet, error) {
 	}
 	return r, nil
 }
+
+// Determine the gateway based on IP and Netmask.
+func gatewayFromIP(ipnet *net.IPNet) *net.IP {
+	// Apply netmask to IP, then increment last octet by one
+	gw := ipnet.IP.Mask(ipnet.Mask)
+	gw[len(gw)-1] += 1
+
+	return &gw
+}
