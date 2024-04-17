@@ -1,27 +1,50 @@
 package main
 
 import (
+	"errors"
 	"net"
 
 	"github.com/insomniacslk/dhcp/dhcpv4"
 	"github.com/insomniacslk/dhcp/dhcpv4/server4"
+	"github.com/linode/dhcpd-unnumbered/options"
 
 	ll "github.com/sirupsen/logrus"
 	"golang.org/x/net/ipv4"
+	"golang.org/x/sys/unix"
 )
+
+// This is returned if NewListener is called with a specified interface, that's
+// not a VRF.
+var ErrNotVRF = errors.New("Not a VRF interface")
 
 // Listener is the core struct
 type Listener struct {
 	c   *ipv4.PacketConn
 	sIP net.IP
+	log *ll.Entry
+
+	// Table of the VRF, otherwise the main table
+	routeTable int
 }
 
-// NewListener creates a new instance of DHCP listener
-func NewListener() (*Listener, error) {
+// NewListener creates a new instance of DHCP listener. If intf is a concrete
+// interface, it must be a VRF.
+func NewListener(intf string) (*Listener, error) {
 	s := net.UDPAddr{
 		IP:   net.IPv4zero,
 		Port: 67,
-		Zone: "",
+		Zone: intf,
+	}
+
+	// The default is the main table
+	vrfTable := unix.RT_TABLE_MAIN
+
+	if intf != "" {
+		var err error
+		vrfTable, err = getVRFTableIdx(intf)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	udpConn, err := server4.NewIPv4UDPConn(s.Zone, &s)
@@ -38,113 +61,164 @@ func NewListener() (*Listener, error) {
 		return nil, err
 	}
 
+	// Create a sub logger that attaches the interface to each message
+	logIntf := intf
+	if logIntf == "" {
+		logIntf = "NONE"
+	}
+	log := ll.NewEntry(ll.StandardLogger()).WithFields(ll.Fields{"interface": logIntf})
+
 	return &Listener{
-		c: c,
+		c:          c,
+		log:        log,
+		routeTable: vrfTable,
 	}, nil
 }
 
 // SetSource sets the DHCP server IP and Identified in the offer
 func (l *Listener) SetSource(ip net.IP) {
 	l.sIP = ip
-	ll.Infof("Sending from %s", l.sIP)
+	l.log.Infof("Sending from %s", l.sIP)
 }
 
 // Listen starts listening for incoming DHCP requests
 func (l *Listener) Listen() error {
-	ll.Infof("Listen %s", l.c.LocalAddr())
+	l.log.Infof("Listen %s", l.c.LocalAddr())
 	for {
 		b := make([]byte, MaxDatagram)
 		n, oob, peer, err := l.c.ReadFrom(b)
 		if err != nil {
-			ll.Errorf("Error reading from connection: %v", err)
+			// NOTE: this error will also be logged if the socket is closed when
+			// the VRF disappears (which is expected).
+			l.log.Errorf("Error reading from connection: %v (this error is expected if a VRF was torn down)", err)
 			return err
 		}
 		go l.handleMsg(b[:n], oob, peer.(*net.UDPAddr))
 	}
 }
 
+func (l *Listener) Close() error {
+	l.log.Info("Closing Listener")
+	return l.c.Close()
+}
+
 // handleMsg is triggered every time there is a DHCP request coming in. this is the main deal handling the reply
 func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Addr) {
 	ifi, err := net.InterfaceByIndex(oob.IfIndex)
 	if err != nil {
-		ll.Errorf("Error getting request interface: %v", err)
+		l.log.Errorf("Error getting request interface: %v", err)
 		return
 	}
+	l.log.Debugf("Received on interface %+v", ifi)
 
 	req, err := dhcpv4.FromBytes(buf)
 	if err != nil {
-		ll.Errorf("Error parsing DHCPv4 request: %v", err)
+		l.log.Errorf("Error parsing DHCPv4 request: %v", err)
 		return
 	}
 
-	ll.Debugf("received %s on %v", req.MessageType(), ifi.Name)
-	ll.Trace(req.Summary())
+	l.log.Debugf("received %s on %v", req.MessageType(), ifi.Name)
+	l.log.Trace(req.Summary())
 
 	if !(regex.Match([]byte(ifi.Name))) {
-		ll.Debugf("DHCP request on Interface %v is not accepted, ignoring", ifi.Name)
+		l.log.Debugf("DHCP request on Interface %v is not accepted, ignoring", ifi.Name)
 		return
 	}
 
 	if ifi.Flags&net.FlagUp != net.FlagUp {
-		ll.Debugf("DHCP request on a Interface %v, which is down. that's not right, skipping...", ifi.Name)
+		l.log.Debugf("DHCP request on a Interface %v, which is down. that's not right, skipping...", ifi.Name)
 		return
 	}
 
 	if req.OpCode != dhcpv4.OpcodeBootRequest {
-		ll.Warnf("Unsupported opcode %d. Only BootRequest (%d) is supported", req.OpCode, dhcpv4.OpcodeBootRequest)
+		l.log.Warnf("Unsupported opcode %d. Only BootRequest (%d) is supported", req.OpCode, dhcpv4.OpcodeBootRequest)
 		return
 	}
 
-	rts, err := getHostRoutesIpv4(ifi.Name)
-	if err != nil {
-		ll.Errorf("failed to get routes for Interface %v: %v", ifi.Name, err)
-		return
+	// Load override options from file if it exists. Otherwise, fall back to
+	// existing behavior of generating options internally, updating this struct
+	// while doing so.
+	options := &options.DHCP{}
+	if *flagHostnameOverride {
+		opt, err := getOptionsOverride(l.log, ifi.Name)
+		if err != nil {
+			l.log.Warnf("Failed to read options file: %v", err)
+		} else {
+			l.log.Infof("Override options read from file")
+			options = opt
+		}
 	}
-	ll.Debugf("Routes found for Interface %v: %v", ifi.Name, rts)
+
+	if options.PvtIPs == nil {
+		options.PvtIPs = pvtIPs
+	}
+
+	if len(options.IPv4) == 0 {
+		l.log.Debugf("Now reading routes from table %d", l.routeTable)
+		rts, err := getTableRoutes(oob.IfIndex, l.routeTable)
+
+		if err != nil {
+			l.log.Errorf("failed to get routes for Interface %v from table %d: %v", ifi.Name, l.routeTable, err)
+			return
+		}
+
+		for _, ip := range rts {
+			// Range is implicitly /24.
+			ipn := net.IPNet{
+				IP:   ip.IP,
+				Mask: net.CIDRMask(24, 32),
+			}
+			options.IPv4 = append(options.IPv4, &ipn)
+		}
+	}
+	l.log.Debugf("Routes found for Interface %v: %v", ifi.Name, options.IPv4)
 
 	// seems like we have no host routes, not providing DHCP
-	if rts == nil {
-		ll.Infof("seems like we have no host routes, not providing DHCP")
+	if len(options.IPv4) == 0 {
+		l.log.Infof("seems like we have no host routes or override IPs, not providing DHCP")
 		return
 	}
 
 	// by default set the first IP in our return slice of routes
-	pickedIP := rts[0].IP
-	for _, ip := range rts {
+	pickedIP := options.IPv4[0]
+	for _, ipr := range options.IPv4 {
 		// however, check if the client requests a specific IP *and* still owns it, if so let 'em have it, even if private
-		if req.RequestedIPAddress().Equal(ip.IP) {
-			ll.Debugf("client requested IP: %v and still owns it. so sticking to that one", req.RequestedIPAddress())
-			pickedIP = req.RequestedIPAddress()
+		if req.RequestedIPAddress().Equal(ipr.IP) {
+			l.log.Debugf("client requested IP: %v and still owns it. so sticking to that one", req.RequestedIPAddress())
+			pickedIP = ipr
 			break
 		}
-		if req.ClientIPAddr.Equal(ip.IP) {
-			ll.Debugf("client used IP: %v and still owns it. so sticking to that one", req.ClientIPAddr)
-			pickedIP = req.ClientIPAddr
+		if req.ClientIPAddr.Equal(ipr.IP) {
+			l.log.Debugf("client used IP: %v and still owns it. so sticking to that one", req.ClientIPAddr)
+			pickedIP = ipr
 			break
 		}
 
-		// if first IP in rts slice is a privete IP, overrise it with this one.
+		// if first IP in rts slice is a privete IP, override it with this one.
 		// doing this way will allow the last private IP to stick anyway in case there is no public IP assigned to a VM
-		if pvtIPs.Contains(pickedIP) {
-			ll.Debugf("first IP was private, overriding with %v for now", ip)
-			pickedIP = ip.IP
+		if options.PvtIPs.Contains(pickedIP.IP) {
+			l.log.Debugf("first IP was private, overriding with %v for now", ipr)
+			pickedIP = ipr
 		}
 	}
 
-	ll.Debugf("Picked IP: %v", pickedIP)
+	l.log.Debugf("Picked IP: %v", pickedIP)
 
-	// the default gateway handed out by DHCP is the .1 of whatever /24 subnet the client gets handed out.
+	// the default gateway handed out by DHCP is the first IP of whatever subnet the client gets handed out.
 	// we actually don't care at all what the gw IP is, its really just to make the client's tcp/ip stack happy
-	gw := net.IPv4(pickedIP[0], pickedIP[1], pickedIP[2], 1)
+	if options.Gateway == nil {
+		gw := gatewayFromIP(pickedIP)
+		options.Gateway = gw
+	}
 
 	// source IP to be sending from
 	sIP := l.sIP
 	if sIP == nil {
-		sIP = gw
+		sIP = *options.Gateway
 	}
 
 	// mix DNS but mix em consistently so same IP gets the same order
-	dns := mixDNS(pickedIP)
+	dns := mixDNS(pickedIP.IP)
 
 	// should I generate a dynamic hostname?
 	hostname := *flagHostname
@@ -152,7 +226,7 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 
 	// find dynamic hostname if feature is enabled
 	if *flagDynHost {
-		hostname = getDynamicHostname(pickedIP)
+		hostname = getDynamicHostname(pickedIP.IP)
 	}
 
 	// static hostname in a file (if exists) will supersede the dynamic hostname
@@ -164,8 +238,17 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 				domainname = d
 			}
 		} else {
-			ll.Debugf("unable to get static hostname: %v", err)
+			l.log.Debugf("unable to get static hostname: %v", err)
 		}
+	}
+
+	// Options file takes priority over other hostname settings
+	if options.Hostname == nil {
+		options.Hostname = &hostname
+	}
+
+	if options.Domainname == nil {
+		options.Domainname = &domainname
 	}
 
 	// lets go compile the response
@@ -173,21 +256,26 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	//mods = append(mods, dhcpv4.WithBroadCast(false))
 	//this should not be needed. only for dhcp relay which we don't use/do. needs to be tested
 	//resp.GatewayIPAddr = gw
-	mods = append(mods, dhcpv4.WithServerIP(gw))
-	mods = append(mods, dhcpv4.WithYourIP(pickedIP))
-	mods = append(mods, dhcpv4.WithNetmask(net.CIDRMask(24, 32)))
-	mods = append(mods, dhcpv4.WithRouter(gw))
+	mods = append(mods, dhcpv4.WithServerIP(*options.Gateway))
+	mods = append(mods, dhcpv4.WithYourIP(pickedIP.IP))
+	mods = append(mods, dhcpv4.WithNetmask(pickedIP.Mask))
+	mods = append(mods, dhcpv4.WithRouter(*options.Gateway))
 	mods = append(mods, dhcpv4.WithDNS(dns...))
 	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptIPAddressLeaseTime(*flagLeaseTime)))
-	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptHostName(hostname)))
-	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptDomainName(domainname)))
+	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptHostName(*options.Hostname)))
+	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptDomainName(*options.Domainname)))
 	mods = append(mods, dhcpv4.WithOption(dhcpv4.OptServerIdentifier(sIP)))
 
 	if *flagBootfile != "" {
 		mods = append(mods, dhcpv4.WithOption(dhcpv4.OptBootFileName(*flagBootfile)))
 	}
-	if tftp != nil {
-		mods = append(mods, dhcpv4.WithOption(dhcpv4.OptTFTPServerName(tftp.String()))) // this is Option 66
+
+	if options.Tftp == nil && tftp != nil {
+		options.Tftp = &tftp
+	}
+
+	if options.Tftp != nil {
+		mods = append(mods, dhcpv4.WithOption(dhcpv4.OptTFTPServerName(options.Tftp.String()))) // this is Option 66
 	}
 
 	switch mt := req.MessageType(); mt {
@@ -196,13 +284,13 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	case dhcpv4.MessageTypeRequest:
 		mods = append(mods, dhcpv4.WithMessageType(dhcpv4.MessageTypeAck))
 	default:
-		ll.Warnf("Unhandled message type: %v", mt)
+		l.log.Warnf("Unhandled message type: %v", mt)
 		return
 	}
 
 	resp, err := dhcpv4.NewReplyFromRequest(req, mods...)
 	if err != nil {
-		ll.Errorf("Failed to compile reply: %v", err)
+		l.log.Errorf("Failed to compile reply: %v", err)
 		return
 	}
 
@@ -222,7 +310,7 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 		peer = &net.UDPAddr{IP: net.IPv4bcast, Port: dhcpv4.ClientPort}
 		peerMAC = &net.HardwareAddr{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 	} else if req.Flags == 0 {
-		peer = &net.UDPAddr{IP: pickedIP, Port: dhcpv4.ClientPort}
+		peer = &net.UDPAddr{IP: pickedIP.IP, Port: dhcpv4.ClientPort}
 		peerMAC = &req.ClientHWAddr
 	} else {
 		ll.Traceln("Cannot handle non-broadcast-capable unspecified peers in an RFC-compliant way. Response will be broadcast")
@@ -231,15 +319,16 @@ func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Add
 	}
 
 	ll.Infof(
-		"%s to %s on %s with %s, lease %s, hostname %s.%s, tftp %s:%s",
+		"%s to %s on %s with %v, lease %s, hostname %s.%s, tftp %s:%s",
 		resp.MessageType(),
 		peer.IP,
 		ifi.Name,
 		pickedIP,
 		*flagLeaseTime,
-		hostname,
-		domainname,
-		tftp,
+		*options.Hostname,
+		*options.Domainname,
+		// This can be nil, so let the logger deference
+		options.Tftp,
 		*flagBootfile,
 	)
 	ll.Trace(resp.Summary())

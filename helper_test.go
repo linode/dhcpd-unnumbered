@@ -6,6 +6,8 @@ import (
 	"net"
 	"os"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func IPsEqual(a, b []net.IP) bool {
@@ -118,5 +120,28 @@ func TestGetHostnameOverride(t *testing.T) {
 				t.Logf("Success !")
 			}
 		})
+	}
+}
+
+func TestGatewayFromIP(t *testing.T) {
+	tests := []struct {
+		input  string
+		output string
+	}{
+		{"192.168.11.11/23", "192.168.10.1"},
+		{"192.168.14.15/24", "192.168.14.1"},
+		{"192.168.11.40/27", "192.168.11.33"},
+	}
+
+	for _, test := range tests {
+		ip, ipnet, err := net.ParseCIDR(test.input)
+		assert.Nil(t, err, "Failed to parse test data!")
+		chosenIP := net.IPNet{
+			IP:   ip,
+			Mask: ipnet.Mask,
+		}
+		gw := gatewayFromIP(&chosenIP)
+
+		assert.Equal(t, test.output, gw.String(), "Unexpected gateway")
 	}
 }

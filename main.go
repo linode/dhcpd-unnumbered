@@ -1,13 +1,16 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"net"
 	"regexp"
+	"sync"
 	"time"
 
+	"github.com/linode/dhcpd-unnumbered/monitor"
 	ll "github.com/sirupsen/logrus"
 )
 
@@ -24,6 +27,7 @@ var (
 
 	flagLeaseTime = flag.Duration("leasetime", (30 * time.Minute), "DHCP lease time.")
 	flagTapRegex  = flag.String("regex", "tap.*_0", "regex to match interfaces.")
+	flagVrfRegex  = flag.String("bind", "", "additionally bind VRF interfaces matching regex.")
 	flagPvtIPs    = flag.String(
 		"pvtcidr",
 		"192.168.0.0/16",
@@ -119,13 +123,83 @@ func main() {
 	}
 
 	// start server
-	s, err := NewListener()
-	if err != nil {
-		ll.Fatal(err)
-	}
+
+	wg := sync.WaitGroup{}
+
+	// Listen across interfaces with a single socket
+	s, err := NewListener("")
 	s.SetSource(sIP)
-	if err := s.Listen(); err != nil {
-		ll.Fatalf("Unexpected server exit: %s", err)
+	wg.Add(1)
+	go func() {
+		if err := s.Listen(); err != nil {
+			ll.Fatalf("Unexpected server exit: %s", err)
+		}
+		wg.Done()
+	}()
+
+	// Dynamically bind interfaces matching flagBindRegex if set
+	if *flagVrfRegex != "" {
+		ll.Infof("Will also bind VRFs matching %s", *flagVrfRegex)
+		regex := regexp.MustCompile(*flagVrfRegex)
+		linkch := make(chan monitor.Event, 5)
+		mon := monitor.NewNetlinkMonitor(linkch, regex)
+
+		// Start monitor
+		go func() {
+			err := mon.Listen()
+			if err != nil {
+				ll.Fatalf("Netlink monitor unexpected exit: %s", err)
+			}
+		}()
+
+		wg.Add(1)
+
+		// Watch for events and generate listeners
+		go func() {
+			defer wg.Done()
+			listeners := make(map[string]*Listener)
+
+			for {
+				event, ok := <-linkch
+				if !ok {
+					ll.Info("Monitor channel closed")
+					break
+				}
+				switch event.Type {
+				case monitor.LinkUp:
+					s, err := NewListener(event.Interface)
+					if err != nil {
+						if errors.Is(err, ErrNotVRF) {
+							// Just in case the regex matches an interface
+							// that's not a VRF, handle it gracefully.
+							ll.Infof("Won't bind %s as it's not a VRF", event.Interface)
+						} else {
+							ll.Warningf("Failed to bind %s: %v", event.Interface, err)
+						}
+						// Add a sentinel to avoid warning when the interface disappears
+						listeners[event.Interface] = nil
+						continue
+					}
+					s.SetSource(sIP)
+					listeners[event.Interface] = s
+					go s.Listen()
+				case monitor.LinkDown:
+					s, ok := listeners[event.Interface]
+					if !ok {
+						// This should not be possible
+						ll.Warningf("Interface %s without listener doing down", event.Interface)
+						continue
+					}
+					delete(listeners, event.Interface)
+					if s != nil {
+						s.Close()
+					}
+				}
+			}
+			mon.Close()
+		}()
 	}
+
+	wg.Wait()
 	ll.Info("closing...")
 }
