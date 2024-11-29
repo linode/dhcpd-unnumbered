@@ -15,7 +15,7 @@ import (
 
 // This is returned if NewListener is called with a specified interface, that's
 // not a VRF.
-var ErrNotVRF = errors.New("Not a VRF interface")
+var ErrNotVRF = errors.New("not a VRF interface")
 
 // Listener is the core struct
 type Listener struct {
@@ -86,14 +86,14 @@ func (l *Listener) Listen() error {
 	l.log.Infof("Listen %s", l.c.LocalAddr())
 	for {
 		b := make([]byte, MaxDatagram)
-		n, oob, peer, err := l.c.ReadFrom(b)
+		n, oob, _, err := l.c.ReadFrom(b)
 		if err != nil {
 			// NOTE: this error will also be logged if the socket is closed when
 			// the VRF disappears (which is expected).
 			l.log.Errorf("Error reading from connection: %v (this error is expected if a VRF was torn down)", err)
 			return err
 		}
-		go l.handleMsg(b[:n], oob, peer.(*net.UDPAddr))
+		go l.handleMsg(b[:n], oob)
 	}
 }
 
@@ -103,7 +103,7 @@ func (l *Listener) Close() error {
 }
 
 // handleMsg is triggered every time there is a DHCP request coming in. this is the main deal handling the reply
-func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage, _peer net.Addr) {
+func (l *Listener) handleMsg(buf []byte, oob *ipv4.ControlMessage) {
 	ifi, err := net.InterfaceByIndex(oob.IfIndex)
 	if err != nil {
 		l.log.Errorf("Error getting request interface: %v", err)

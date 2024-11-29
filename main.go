@@ -128,6 +128,9 @@ func main() {
 
 	// Listen across interfaces with a single socket
 	s, err := NewListener("")
+	if err != nil {
+		ll.Errorf("new instance of DHCP listener couldn't be created: %v", err)
+	}
 	s.SetSource(sIP)
 	wg.Add(1)
 	go func() {
