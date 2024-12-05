@@ -4,7 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"regexp"
 	"sync"
@@ -53,7 +53,7 @@ var (
 	flagBootfile   = flag.String("bootfile", "", "boot file to offer in DHCP replies")
 
 	logLevels = map[string]func(){
-		"none":    func() { ll.SetOutput(ioutil.Discard) },
+		"none":    func() { ll.SetOutput(io.Discard) },
 		"trace":   func() { ll.SetLevel(ll.TraceLevel) },
 		"debug":   func() { ll.SetLevel(ll.DebugLevel) },
 		"info":    func() { ll.SetLevel(ll.InfoLevel) },
@@ -128,6 +128,9 @@ func main() {
 
 	// Listen across interfaces with a single socket
 	s, err := NewListener("")
+	if err != nil {
+		ll.Errorf("new instance of DHCP listener couldn't be created: %v", err)
+	}
 	s.SetSource(sIP)
 	wg.Add(1)
 	go func() {
