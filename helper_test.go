@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"testing"
@@ -86,7 +85,7 @@ func overrideFile(t *testing.T, ifName, hostname string) {
 	*flagHostnamePath = "/tmp/"
 
 	s := []byte(hostname)
-	ioutil.WriteFile(*flagHostnamePath+ifName, s, 0644)
+	os.WriteFile(*flagHostnamePath+ifName, s, 0644)
 
 	t.Cleanup(func() {
 		os.Remove(*flagHostnamePath + ifName)
